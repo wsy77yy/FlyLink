@@ -4,9 +4,19 @@ from .models import UserAccount, EnterpriseProfile, PilotProfile, PilotResume, C
 
 
 class UserSerializer(serializers.ModelSerializer):
+    """当前登录用户本人使用，允许返回手机号、邮箱等账户信息。"""
+
     class Meta:
         model = UserAccount
         fields = ['id', 'username', 'role', 'phone', 'email', 'avatar', 'credit_score', 'date_joined']
+
+
+class PublicUserSerializer(serializers.ModelSerializer):
+    """公开展示使用，避免把手机号、邮箱暴露给其他用户。"""
+
+    class Meta:
+        model = UserAccount
+        fields = ['id', 'username', 'role', 'avatar', 'credit_score']
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -45,7 +55,7 @@ class RegisterSerializer(serializers.Serializer):
 
 
 class EnterpriseProfileSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
+    user = PublicUserSerializer(read_only=True)
 
     class Meta:
         model = EnterpriseProfile
@@ -53,7 +63,7 @@ class EnterpriseProfileSerializer(serializers.ModelSerializer):
 
 
 class PilotProfileSerializer(serializers.ModelSerializer):
-    user = UserSerializer(read_only=True)
+    user = PublicUserSerializer(read_only=True)
 
     class Meta:
         model = PilotProfile
@@ -77,6 +87,7 @@ class PilotResumeSerializer(serializers.ModelSerializer):
 
 class CreditReviewSerializer(serializers.ModelSerializer):
     from_username = serializers.CharField(source='from_user.username', read_only=True)
+    to_username = serializers.CharField(source='to_user.username', read_only=True)
 
     class Meta:
         model = CreditReview
