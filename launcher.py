@@ -16,9 +16,19 @@ RUNTIME_MG = ROOT / "runtime" / "python" / "flylink_manage.py"
 VENV_PY = BACKEND / ".venv" / "Scripts" / "python.exe"
 DIST_INDEX = ROOT / "frontend" / "dist" / "index.html"
 LOG = ROOT / "FlyLink-start-log.txt"
-URL = "http://127.0.0.1:8000/"
-API = "http://127.0.0.1:8000/api/common/stats/"
-HOST_PORT = ("0.0.0.0", 8000)
+
+# 默认保持路演可扫码访问：0.0.0.0。
+# 如果只允许本机访问，可在启动前设置：
+# FLYLINK_BIND_HOST=127.0.0.1
+BIND_HOST = os.environ.get("FLYLINK_BIND_HOST", "0.0.0.0")
+
+try:
+    BIND_PORT = int(os.environ.get("FLYLINK_BIND_PORT", "8000"))
+except ValueError:
+    BIND_PORT = 8000
+
+URL = f"http://127.0.0.1:{BIND_PORT}/"
+API = f"http://127.0.0.1:{BIND_PORT}/api/common/stats/"
 
 
 def log(msg: str) -> None:
@@ -50,6 +60,35 @@ def http_ok(url: str, timeout: float = 1.5) -> bool:
             return 200 <= r.status < 500
     except Exception:
         return False
+
+def get_lan_ip():
+    """Try to find a LAN IP for roadshow QR-code access."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except Exception:
+        pass
+
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+
+    return ""
+
+
+def get_lan_url():
+    if BIND_HOST not in ("0.0.0.0", "::"):
+        return ""
+    ip = get_lan_ip()
+    if not ip:
+        return ""
+    return f"http://{ip}:{BIND_PORT}/"
 
 
 def unblock_tree(path: Path) -> None:
@@ -113,7 +152,7 @@ def start_server(py: Path, args_prefix: list) -> subprocess.Popen:
     env = os.environ.copy()
     env["FLYLINK_BACKEND"] = str(BACKEND)
     env["PYTHONUTF8"] = "1"
-    cmd = [str(py)] + args_prefix + ["runserver", "0.0.0.0:8000", "--noreload"]
+    cmd = [str(py)] + args_prefix + ["runserver", f"{BIND_HOST}:{BIND_PORT}", "--noreload"]
     log("START SERVER: " + " ".join(cmd))
     # Detached-ish minimized console on Windows
     creationflags = 0
@@ -166,6 +205,10 @@ def main() -> int:
             pass
     log(f"ROOT={ROOT}")
     log(f"BACKEND={BACKEND}")
+    log(f"BIND={BIND_HOST}:{BIND_PORT}")
+    log(f"LOCAL_URL={URL}")
+    if get_lan_url():
+        log(f"LAN_URL={get_lan_url()}")
 
     if not DIST_INDEX.exists():
         msgbox(
@@ -204,7 +247,7 @@ def main() -> int:
         except Exception as e:
             log(f"seed_demo warning: {e}")
 
-        if port_in_use(8000) and (http_ok(API) or http_ok(URL)):
+        if port_in_use(BIND_PORT) and (http_ok(API) or http_ok(URL)):
             log("Already running")
             open_browser()
             msgbox(
@@ -216,7 +259,7 @@ def main() -> int:
             )
             return 0
 
-        if port_in_use(8000) and not http_ok(URL):
+        if port_in_use(BIND_PORT) and not http_ok(URL):
             log("Port 8000 occupied by other program")
             msgbox(
                 "端口 8000 已被其他程序占用。\n"
@@ -240,9 +283,12 @@ def main() -> int:
             return 1
 
         open_browser()
+        lan_url = get_lan_url()
+        lan_tip = f"\n\n路演扫码地址：\n{lan_url}" if lan_url else ""
         msgbox(
             "启动成功！浏览器应已打开。\n\n"
-            f"若没有自动打开，请手动访问：\n{URL}\n\n"
+            f"若没有自动打开，请手动访问：\n{URL}"
+            f"{lan_tip}\n\n"
             "企业：enterprise1 / demo1234\n"
             "飞手：pilot1 / demo1234\n\n"
             "用完请运行 Stop.bat 关闭"
