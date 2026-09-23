@@ -1,4 +1,5 @@
-from decimal import Decimal
+from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import transaction
@@ -17,6 +18,7 @@ from .models import (
     WorkTrack,
     WorkMedia,
     Settlement,
+    haversine_km,
 )
 from .serializers import (
     WorkOrderSerializer,
@@ -85,6 +87,9 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             'destroy',
             'rematch',
             'accept_delivery',
+            'pay_deposit',
+            'pay_balance',
+            'cancel_order',
         ):
             if user.role == UserAccount.Role.ENTERPRISE:
                 return qs.filter(enterprise=user)
@@ -97,6 +102,8 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             'upload_track',
             'upload_media',
             'submit_work',
+            'arrive',
+            'finish_work',
         ):
             if user.role == UserAccount.Role.PILOT:
                 return qs.filter(pilot=user)
@@ -159,10 +166,18 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         order = serializer.save(
             enterprise=self.request.user,
             order_no=gen_order_no(),
-            escrow_amount=serializer.validated_data['budget'],
+            escrow_amount=Decimal('0'),
             platform_fee_rate=Decimal(
                 str(settings.PLATFORM_FEE_RATE)
             ),
+            deposit_amount=(
+                serializer.validated_data['budget']
+                * Decimal('0.20')
+            ).quantize(Decimal('0.01')),
+            balance_amount=(
+                serializer.validated_data['budget']
+                * Decimal('0.80')
+            ).quantize(Decimal('0.01')),
         )
 
         smart_match_and_push(order)
@@ -509,6 +524,174 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=['post'])
+    def pay_deposit(self, request, pk=None):
+        """企业支付订单金额的20%预付款（演示支付）。"""
+        order = self.get_object()
+        with transaction.atomic():
+            order = WorkOrder.objects.select_for_update().get(pk=order.pk)
+            if order.enterprise_id != request.user.id:
+                return Response(
+                    {'detail': '仅发单企业可以支付预付款'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if order.status not in (
+                WorkOrder.Status.ACCEPTED,
+                WorkOrder.Status.DECLARED,
+                WorkOrder.Status.ARRIVED,
+            ):
+                return Response(
+                    {'detail': '当前订单状态不能支付预付款'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not order.pilot_id:
+                return Response(
+                    {'detail': '飞手接单后才能支付预付款'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not order.deposit_amount:
+                order.deposit_amount = (
+                    order.budget * Decimal('0.20')
+                ).quantize(Decimal('0.01'))
+            if not order.balance_amount:
+                order.balance_amount = order.budget - order.deposit_amount
+            order.deposit_paid_at = order.deposit_paid_at or timezone.now()
+            order.escrow_amount = order.deposit_amount
+            order.save(update_fields=[
+                'deposit_amount', 'balance_amount', 'deposit_paid_at',
+                'escrow_amount', 'updated_at',
+            ])
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def arrive(self, request, pk=None):
+        """飞手点击已到达；服务端计算与任务点的距离。"""
+        order = self.get_object()
+        denied = self.require_pilot_owner_or_admin(
+            request, order, '仅承接飞手可以确认到达',
+        )
+        if denied:
+            return denied
+        try:
+            lat = Decimal(str(request.data.get('lat')))
+            lng = Decimal(str(request.data.get('lng')))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {'detail': '请提供有效的当前位置经纬度'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if order.lat is None or order.lng is None:
+            return Response(
+                {'detail': '订单未设置任务点坐标，无法确认到达'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        distance = haversine_km(lat, lng, order.lat, order.lng)
+        if distance > 0.50:
+            return Response(
+                {'detail': f'当前位置距离任务点{float(distance):.2f}公里，请到达500米范围内再确认'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        with transaction.atomic():
+            order = WorkOrder.objects.select_for_update().get(pk=order.pk)
+            if order.status != WorkOrder.Status.DECLARED:
+                return Response(
+                    {'detail': '飞行申报通过后才能确认到达'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.status = WorkOrder.Status.ARRIVED
+            order.arrived_at = timezone.now()
+            order.arrival_lat = lat
+            order.arrival_lng = lng
+            order.arrival_distance_km = float(distance)
+            order.save(update_fields=[
+                'status', 'arrived_at', 'arrival_lat', 'arrival_lng',
+                'arrival_distance_km', 'updated_at',
+            ])
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def finish_work(self, request, pk=None):
+        """飞手确认现场作业完成，并开始24小时成果提交倒计时。"""
+        order = self.get_object()
+        denied = self.require_pilot_owner_or_admin(
+            request, order, '仅承接飞手可以完成作业',
+        )
+        if denied:
+            return denied
+        with transaction.atomic():
+            order = WorkOrder.objects.select_for_update().get(pk=order.pk)
+            if order.status != WorkOrder.Status.WORKING:
+                return Response(
+                    {'detail': '只有作业中的订单可以确认完成'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            now = timezone.now()
+            order.status = WorkOrder.Status.FINISHED
+            order.finished_at = now
+            order.submission_deadline = now + timedelta(hours=24)
+            order.save(update_fields=[
+                'status', 'finished_at', 'submission_deadline', 'updated_at',
+            ])
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def admin_review(self, request, pk=None):
+        """管理员审核飞手提交的作业成果。"""
+        if not is_admin_user(request.user):
+            return Response(
+                {'detail': '仅管理员可以审核作业成果'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        with transaction.atomic():
+            order = WorkOrder.objects.select_for_update().get(pk=pk)
+            if order.status != WorkOrder.Status.SUBMITTED:
+                return Response(
+                    {'detail': '只有待验收订单可以审核'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            order.status = WorkOrder.Status.REVIEWED
+            order.admin_reviewed_at = timezone.now()
+            order.save(update_fields=['status', 'admin_reviewed_at', 'updated_at'])
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def cancel_order(self, request, pk=None):
+        """企业取消订单；发布1小时后且已接单时收取5%违约款。"""
+        order = self.get_object()
+        if order.enterprise_id != request.user.id:
+            return Response(
+                {'detail': '仅发单企业可以取消订单'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        with transaction.atomic():
+            order = WorkOrder.objects.select_for_update().get(pk=order.pk)
+            if order.status in (
+                WorkOrder.Status.SUBMITTED, WorkOrder.Status.REVIEWED,
+                WorkOrder.Status.ACCEPTED_DONE, WorkOrder.Status.SETTLED,
+                WorkOrder.Status.CANCELLED,
+            ):
+                return Response(
+                    {'detail': '当前订单状态不能取消'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            free_deadline = order.created_at + timedelta(hours=1)
+            penalty = Decimal('0')
+            if order.pilot_id and timezone.now() > free_deadline:
+                penalty = (order.budget * Decimal('0.05')).quantize(Decimal('0.01'))
+            order.status = WorkOrder.Status.CANCELLED
+            order.cancelled_at = timezone.now()
+            order.cancellation_penalty = penalty
+            order.cancel_reason = str(request.data.get('reason', '')).strip()
+            order.save(update_fields=[
+                'status', 'cancelled_at', 'cancellation_penalty',
+                'cancel_reason', 'updated_at',
+            ])
+        return Response({
+            'order': WorkOrderSerializer(order, context={'request': request}).data,
+            'penalty_amount': penalty,
+            'free_cancel': penalty == 0,
+        })
+
+    @action(detail=True, methods=['post'])
     def start_work(self, request, pk=None):
         order = self.get_object()
 
@@ -534,15 +717,22 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_403_FORBIDDEN,
                     )
 
-            if order.status != WorkOrder.Status.DECLARED:
+            if order.status != WorkOrder.Status.ARRIVED:
                 return Response(
-                    {'detail': '只有已批准的订单才能开始作业'},
+                    {'detail': '飞手定位确认到达后才能开始作业'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not order.deposit_paid_at:
+                return Response(
+                    {'detail': '企业支付20%预付款后才能开始作业'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             order.status = WorkOrder.Status.WORKING
+            order.started_at = timezone.now()
             order.save(
-                update_fields=['status', 'updated_at']
+                update_fields=['status', 'started_at', 'updated_at']
             )
 
         return Response(
@@ -564,7 +754,10 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         if denied:
             return denied
 
-        if order.status != WorkOrder.Status.WORKING:
+        if order.status not in (
+            WorkOrder.Status.WORKING,
+            WorkOrder.Status.FINISHED,
+        ):
             return Response(
                 {'detail': '只有作业中的订单才能上传轨迹'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -587,7 +780,10 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_403_FORBIDDEN,
                     )
 
-            if order.status != WorkOrder.Status.WORKING:
+            if order.status not in (
+                WorkOrder.Status.WORKING,
+                WorkOrder.Status.FINISHED,
+            ):
                 return Response(
                     {'detail': '只有作业中的订单才能上传轨迹'},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -638,7 +834,10 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         if denied:
             return denied
 
-        if order.status != WorkOrder.Status.WORKING:
+        if order.status not in (
+            WorkOrder.Status.WORKING,
+            WorkOrder.Status.FINISHED,
+        ):
             return Response(
                 {'detail': '只有作业中的订单才能上传成果影像'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -683,15 +882,25 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_403_FORBIDDEN,
                     )
 
-            if order.status != WorkOrder.Status.WORKING:
+            if order.status != WorkOrder.Status.FINISHED:
                 return Response(
-                    {'detail': '当前订单状态不能提交作业'},
+                    {'detail': '请先点击“已完成作业”再提交成果'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if (
+                order.submission_deadline
+                and timezone.now() > order.submission_deadline
+            ):
+                return Response(
+                    {'detail': '已超过完成作业后24小时的提交期限'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             order.status = WorkOrder.Status.SUBMITTED
+            order.submitted_at = timezone.now()
             order.save(
-                update_fields=['status', 'updated_at']
+                update_fields=['status', 'submitted_at', 'updated_at']
             )
 
         return Response(
@@ -703,7 +912,7 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def accept_delivery(self, request, pk=None):
-        """甲方验收 → 生成托管结算并打款。"""
+        """管理员审核通过后，企业支付80%尾款并完成结算。"""
 
         order = self.get_object()
 
@@ -730,9 +939,15 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_403_FORBIDDEN,
                     )
 
-            if order.status != WorkOrder.Status.SUBMITTED:
+            if order.status != WorkOrder.Status.REVIEWED:
                 return Response(
-                    {'detail': '只有已提交作业的订单才能验收'},
+                    {'detail': '管理员审核通过后才能支付尾款'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if not order.deposit_paid_at:
+                return Response(
+                    {'detail': '请先支付20%预付款'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -768,8 +983,12 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             )
 
             order.status = WorkOrder.Status.SETTLED
+            order.balance_paid_at = timezone.now()
+            order.escrow_amount = order.budget
             order.save(
-                update_fields=['status', 'updated_at']
+                update_fields=[
+                    'status', 'balance_paid_at', 'escrow_amount', 'updated_at',
+                ]
             )
 
             if (
@@ -786,6 +1005,10 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                 settlement
             ).data
         )
+
+    @action(detail=True, methods=['post'])
+    def pay_balance(self, request, pk=None):
+        return self.accept_delivery(request, pk=pk)
 
     @action(detail=True, methods=['get'])
     def progress(self, request, pk=None):

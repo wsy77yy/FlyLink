@@ -37,8 +37,11 @@ class WorkOrder(models.Model):
         MATCHED = 'matched', '已推送'
         ACCEPTED = 'accepted', '已接单'
         DECLARED = 'declared', '已申报'
+        ARRIVED = 'arrived', '飞手已到达'
         WORKING = 'working', '作业中'
+        FINISHED = 'finished', '作业已完成'
         SUBMITTED = 'submitted', '待验收'
+        REVIEWED = 'reviewed', '管理员已审核'
         ACCEPTED_DONE = 'accepted_done', '已验收'
         SETTLED = 'settled', '已结算'
         CANCELLED = 'cancelled', '已取消'
@@ -65,6 +68,22 @@ class WorkOrder(models.Model):
     assigned_by_admin = models.BooleanField(default=False)
     platform_fee_rate = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.0800'))
     escrow_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    deposit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    deposit_paid_at = models.DateTimeField(null=True, blank=True)
+    balance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    balance_paid_at = models.DateTimeField(null=True, blank=True)
+    arrived_at = models.DateTimeField(null=True, blank=True)
+    arrival_lat = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
+    arrival_lng = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
+    arrival_distance_km = models.FloatField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    submission_deadline = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    admin_reviewed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancellation_penalty = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cancel_reason = models.TextField(blank=True, default='')
     actual_area = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     remark = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
