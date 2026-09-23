@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FlyLink 平台管理数据</title>
+    <link rel="stylesheet" href="/assets/index-DM7TVN1r.css" />
+    <link rel="stylesheet" href="/assets/AdminDashboard.css" />
+  </head>
+  <body>
+    <div class="admin-shell">
+      <header class="admin-nav glass-panel">
+        <a class="brand" href="/admin-dashboard.html">
+          <span class="brand-text"><strong class="brand-name">FlyLink</strong><span class="brand-cn">飞链 · 管理员端</span></span>
+        </a>
+        <div class="admin-actions"><span id="admin-name">平台管理员</span><button id="logout" type="button">退出登录</button></div>
+      </header>
+      <main class="admin-dashboard">
+        <section class="admin-hero glass-panel">
+          <p class="eyebrow">PLATFORM ADMINISTRATION</p>
+          <h1>平台管理数据</h1>
+          <p class="muted">查看平台运营与设备基本数据，不参与发布订单、发布岗位或抢单。</p>
+        </section>
+        <p id="admin-status" class="admin-loading">数据加载中……</p>
+        <section id="admin-stats" class="admin-stats" hidden></section>
+      </main>
+    </div>
+    <script type="module" src="/assets/admin-dashboard.js"></script>
+  </body>
+</html>

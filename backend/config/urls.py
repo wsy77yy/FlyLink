@@ -44,6 +44,11 @@ if Path(settings.FRONTEND_DIST).exists():
             static_serve,
             {'document_root': str(settings.FRONTEND_DIST)},
         ),
+        re_path(
+            r'^(?P<path>admin-dashboard\.html)$',
+            static_serve,
+            {'document_root': str(settings.FRONTEND_DIST)},
+        ),
         # SPA 回退（放最后，避免拦截 /api）
         re_path(r'^(?!api/).*$', spa_index),
     ]
