@@ -27,6 +27,8 @@ function applyRoleVisibility(){
       orderLink.href="/orders/hall";
       orderLink.textContent="抢单大厅";
       orderLink.dataset.roleLink="pilot-orders";
+      orderLink.setAttribute("data-v-13da54f5","");
+      if(location.pathname==="/orders/hall")orderLink.classList.add("router-link-active");
       menu.prepend(orderLink);
     }
     document.querySelectorAll('a[href="/jobs"]').forEach(link=>{if(link.textContent!=="招募大厅")link.textContent="招募大厅"});
