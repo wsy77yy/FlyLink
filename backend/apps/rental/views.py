@@ -192,6 +192,15 @@ class RentalOrderViewSet(viewsets.ModelViewSet):
         return qs.filter(user=user)
 
     def create(self, request, *args, **kwargs):
+        if request.user.role not in (
+            UserAccount.Role.ENTERPRISE,
+            UserAccount.Role.PILOT,
+        ):
+            return Response(
+                {'detail': '仅企业用户或飞手可以租赁设备。'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         device_id = request.data.get('device')
         start = request.data.get('start_date')
         end = request.data.get('end_date')
@@ -336,7 +345,7 @@ class RentalOrderViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             try:
                 order = (
-                    RentalOrder.objects
+                    self.get_queryset()
                     .select_for_update()
                     .get(pk=pk)
                 )
@@ -436,7 +445,7 @@ class RentalOrderViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             try:
                 order = (
-                    RentalOrder.objects
+                    self.get_queryset()
                     .select_for_update()
                     .get(pk=pk)
                 )
@@ -477,27 +486,14 @@ class RentalOrderViewSet(viewsets.ModelViewSet):
 
         所有数据库写操作在一个事务中完成。
 
-        正常情况下只有管理员可以验机。
-        DEMO_ALLOW_SELF_INSPECTION=True 时，
-        非管理员也允许进行演示验机。
+        只有管理员可以验机，租赁用户只能提交归还申请。
         """
 
-        demo_self_inspection = getattr(
-            settings,
-            'DEMO_ALLOW_SELF_INSPECTION',
-            True,
-        )
-
         if not is_admin_user(request.user):
-            if not demo_self_inspection:
-                return Response(
-                    {
-                        'detail': (
-                            '仅管理员可以进行设备验机。'
-                        )
-                    },
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+            return Response(
+                {'detail': '仅管理员可以进行设备验机。'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         try:
             damage_fee = Decimal(
