@@ -28,9 +28,10 @@ function applyRoleVisibility(){
       orderLink.textContent="抢单大厅";
       orderLink.dataset.roleLink="pilot-orders";
       orderLink.setAttribute("data-v-13da54f5","");
-      if(location.pathname==="/orders/hall")orderLink.classList.add("router-link-active");
       menu.prepend(orderLink);
     }
+    const orderLink=menu?.querySelector('[data-role-link="pilot-orders"]');
+    orderLink?.classList.toggle("router-link-active",location.pathname==="/orders/hall");
     document.querySelectorAll('a[href="/jobs"]').forEach(link=>{if(link.textContent!=="招募大厅")link.textContent="招募大厅"});
   }
 }
