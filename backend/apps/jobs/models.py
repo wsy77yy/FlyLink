@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.users.models import UserAccount
+from apps.common.validators import salary_validators
 
 
 class JobPost(models.Model):
@@ -18,8 +19,8 @@ class JobPost(models.Model):
     title = models.CharField(max_length=128)
     job_type = models.CharField(max_length=20, choices=JobType.choices, default=JobType.FULLTIME)
     location = models.CharField(max_length=255)
-    salary_min = models.IntegerField()
-    salary_max = models.IntegerField()
+    salary_min = models.IntegerField(validators=salary_validators)
+    salary_max = models.IntegerField(validators=salary_validators)
     license_req = models.CharField(max_length=64, blank=True, default='')
     benefits = models.TextField(blank=True, default='')
     responsibilities = models.TextField(blank=True, default='')
@@ -30,6 +31,20 @@ class JobPost(models.Model):
     class Meta:
         db_table = 'job_post'
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(salary_min__gte=3000, salary_min__lte=1000000),
+                name='job_salary_min_range',
+            ),
+            models.CheckConstraint(
+                check=models.Q(salary_max__gte=3000, salary_max__lte=1000000),
+                name='job_salary_max_range',
+            ),
+            models.CheckConstraint(
+                check=models.Q(salary_max__gte=models.F('salary_min')),
+                name='job_salary_ordered',
+            ),
+        ]
 
 
 class JobApplication(models.Model):
@@ -55,6 +70,12 @@ class JobApplication(models.Model):
     class Meta:
         db_table = 'job_application'
         unique_together = ('job', 'pilot')
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(match_score__gte=0, match_score__lte=100),
+                name='job_match_score_0_100',
+            ),
+        ]
 
 
 class ChatMessage(models.Model):
@@ -99,3 +120,13 @@ class AgencyFee(models.Model):
 
     class Meta:
         db_table = 'agency_fee'
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(fee_rate__gte=0, fee_rate__lte=1),
+                name='agency_fee_rate_0_1',
+            ),
+            models.CheckConstraint(
+                check=models.Q(amount__gte=0),
+                name='agency_fee_amount_nonnegative',
+            ),
+        ]

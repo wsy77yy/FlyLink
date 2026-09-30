@@ -1,9 +1,9 @@
 from decimal import Decimal
 from django.conf import settings
 from django.db.models import Avg
-from django.utils import timezone
 
 from apps.users.models import PilotProfile, UserAccount, CreditReview
+from apps.common.order_numbers import generate_order_no
 from .models import WorkOrder, OrderMatchLog, haversine_km
 
 
@@ -68,4 +68,4 @@ def smart_match_and_push(order: WorkOrder, limit: int = 20):
 
 
 def gen_order_no(prefix='WO'):
-    return f"{prefix}{timezone.now().strftime('%Y%m%d%H%M%S')}{timezone.now().microsecond % 1000:03d}"
+    return generate_order_no(prefix)

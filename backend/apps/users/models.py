@@ -1,5 +1,8 @@
 from django.contrib.auth.models import AbstractUser
+from django.core.validators import MinValueValidator
 from django.db import models
+
+from apps.common.validators import credit_score_validators, review_score_validators
 
 
 class UserAccount(AbstractUser):
@@ -11,11 +14,17 @@ class UserAccount(AbstractUser):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.PILOT)
     phone = models.CharField(max_length=20, blank=True, default='')
     avatar = models.URLField(blank=True, default='')
-    credit_score = models.IntegerField(default=600)
+    credit_score = models.IntegerField(default=600, validators=credit_score_validators)
 
     class Meta:
         db_table = 'user_account'
         verbose_name = '用户账号'
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(credit_score__gte=300, credit_score__lte=1000),
+                name='user_credit_score_300_1000',
+            ),
+        ]
 
 
 class EnterpriseProfile(models.Model):
@@ -48,6 +57,20 @@ class PilotProfile(models.Model):
 
     class Meta:
         db_table = 'pilot_profile'
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(years_exp__gte=0),
+                name='pilot_years_exp_nonnegative',
+            ),
+            models.CheckConstraint(
+                check=models.Q(lat__isnull=True) | models.Q(lat__gte=-90, lat__lte=90),
+                name='pilot_lat_range',
+            ),
+            models.CheckConstraint(
+                check=models.Q(lng__isnull=True) | models.Q(lng__gte=-180, lng__lte=180),
+                name='pilot_lng_range',
+            ),
+        ]
 
 
 class PilotResume(models.Model):
@@ -70,8 +93,8 @@ class CreditReview(models.Model):
     from_user = models.ForeignKey(UserAccount, on_delete=models.CASCADE, related_name='reviews_given')
     to_user = models.ForeignKey(UserAccount, on_delete=models.CASCADE, related_name='reviews_received')
     biz_type = models.CharField(max_length=20, choices=BizType.choices)
-    biz_id = models.BigIntegerField()
-    score = models.IntegerField()
+    biz_id = models.BigIntegerField(validators=[MinValueValidator(1)])
+    score = models.IntegerField(validators=review_score_validators)
     tags = models.JSONField(default=list, blank=True)
     content = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -79,3 +102,17 @@ class CreditReview(models.Model):
     class Meta:
         db_table = 'credit_review'
         unique_together = ('from_user', 'biz_type', 'biz_id')
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(score__gte=1, score__lte=5),
+                name='credit_review_score_1_5',
+            ),
+            models.CheckConstraint(
+                check=~models.Q(from_user=models.F('to_user')),
+                name='credit_review_users_differ',
+            ),
+            models.CheckConstraint(
+                check=models.Q(biz_id__gt=0),
+                name='credit_review_biz_id_positive',
+            ),
+        ]

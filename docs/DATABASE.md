@@ -24,7 +24,7 @@
 | email | VARCHAR(128) | |
 | avatar | VARCHAR(255) | |
 | is_active | BOOL | |
-| credit_score | INT | 信用分 0-1000 |
+| credit_score | INT | 信用分 300-1000（数据库约束） |
 | created_at / updated_at | DATETIME | |
 
 ### enterprise_profile（企业资料）
@@ -87,7 +87,7 @@
 | location / lat / lng | | 作业地点 |
 | execute_time | DATETIME | |
 | area_or_duration | VARCHAR(64) | 面积/时长 |
-| budget | DECIMAL(12,2) | |
+| budget | DECIMAL(12,2) | 100.00-9,999,999,999.99 |
 | license_req | VARCHAR(64) | 资质硬性要求 |
 | urgent | BOOL | 紧急标识 |
 | status | VARCHAR(20) | pending/matched/accepted/declared/working/submitted/accepted_done/settled/cancelled |
@@ -157,7 +157,7 @@
 | title | VARCHAR(128) | |
 | job_type | VARCHAR(20) | fulltime/parttime |
 | location | VARCHAR(255) | |
-| salary_min / salary_max | INT | |
+| salary_min / salary_max | INT | 各 3,000-1,000,000，且最高薪资不得低于最低薪资 |
 | license_req | VARCHAR(64) | |
 | benefits | TEXT | |
 | responsibilities | TEXT | |
@@ -234,7 +234,7 @@
 |------|------|------|
 | order_no | VARCHAR(32) | |
 | user_id / device_id | FK | |
-| start_date / end_date | DATE | |
+| start_date / end_date | DATE | 合法自然日，结束日期不得早于开始日期；接口自动返回对应星期 |
 | delivery_type | VARCHAR(20) | pickup/express |
 | deposit_paid | DECIMAL | |
 | deposit_waived | BOOL | 信用免押 |

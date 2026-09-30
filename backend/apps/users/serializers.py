@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from rest_framework.validators import UniqueValidator
 from .models import UserAccount, EnterpriseProfile, PilotProfile, PilotResume, CreditReview
 
 
@@ -9,6 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserAccount
         fields = ['id', 'username', 'role', 'phone', 'email', 'avatar', 'credit_score', 'date_joined']
+        read_only_fields = ['id', 'username', 'role', 'credit_score', 'date_joined']
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
@@ -20,7 +24,10 @@ class PublicUserSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=64)
+    username = serializers.CharField(
+        max_length=64,
+        validators=[UniqueValidator(queryset=UserAccount.objects.all(), message='该用户名已被使用。')],
+    )
     password = serializers.CharField(write_only=True)
     role = serializers.ChoiceField(choices=['enterprise', 'pilot'])
     phone = serializers.CharField(required=False, allow_blank=True)
@@ -60,14 +67,27 @@ class EnterpriseProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = EnterpriseProfile
         fields = '__all__'
+        read_only_fields = ['user', 'verified']
 
 
 class PilotProfileSerializer(serializers.ModelSerializer):
     user = PublicUserSerializer(read_only=True)
+    years_exp = serializers.IntegerField(min_value=0, max_value=80, required=False)
+    lat = serializers.DecimalField(
+        max_digits=10, decimal_places=6,
+        min_value=Decimal('-90'), max_value=Decimal('90'),
+        required=False, allow_null=True,
+    )
+    lng = serializers.DecimalField(
+        max_digits=10, decimal_places=6,
+        min_value=Decimal('-180'), max_value=Decimal('180'),
+        required=False, allow_null=True,
+    )
 
     class Meta:
         model = PilotProfile
         fields = '__all__'
+        read_only_fields = ['user', 'verified']
 
 
 class PilotResumeSerializer(serializers.ModelSerializer):
@@ -93,3 +113,10 @@ class CreditReviewSerializer(serializers.ModelSerializer):
         model = CreditReview
         fields = '__all__'
         read_only_fields = ['from_user']
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        to_user = attrs.get('to_user', getattr(self.instance, 'to_user', None))
+        if request and request.user.is_authenticated and to_user == request.user:
+            raise serializers.ValidationError({'to_user': '不能评价自己。'})
+        return attrs

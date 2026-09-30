@@ -1,6 +1,5 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from uuid import uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -12,6 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.users.models import UserAccount
+from apps.common.order_numbers import generate_order_no
 
 from .models import DroneDevice, MaintenanceRecord, RentalOrder
 from .serializers import (
@@ -210,6 +210,12 @@ class RentalOrderViewSet(viewsets.ModelViewSet):
             RentalOrder.DeliveryType.PICKUP,
         )
 
+        if delivery not in RentalOrder.DeliveryType.values:
+            return Response(
+                {'detail': '取件方式无效。'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
             device = DroneDevice.objects.get(
                 id=device_id
@@ -248,6 +254,19 @@ class RentalOrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        today = timezone.localdate()
+        if start_d < today:
+            return Response(
+                {'detail': '开始日期不能早于今天。'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if (end_d - start_d).days > 365:
+            return Response(
+                {'detail': '单次租期不能超过 366 天。'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         days = max(
             (end_d - start_d).days + 1,
             1,
@@ -275,11 +294,7 @@ class RentalOrderViewSet(viewsets.ModelViewSet):
 
         insurance = INSURANCE_DAILY * days
 
-        # 时间 + UUID，避免同一秒创建多个订单时 order_no 冲突
-        order_no = (
-            f"RL{timezone.now().strftime('%Y%m%d%H%M%S')}"
-            f"{uuid4().hex[:16]}"
-        )
+        order_no = generate_order_no('RL')
 
         try:
             order = RentalOrder.objects.create(
@@ -301,11 +316,8 @@ class RentalOrderViewSet(viewsets.ModelViewSet):
                 ),
             )
         except IntegrityError:
-            # 极低概率 UUID 冲突时重新生成订单号
-            order_no = (
-                f"RL{timezone.now().strftime('%Y%m%d%H%M%S')}"
-                f"{uuid4().hex[:16]}"
-            )
+            # 极低概率随机碰撞时重新生成订单号。
+            order_no = generate_order_no('RL')
 
             order = RentalOrder.objects.create(
                 order_no=order_no,

@@ -88,11 +88,14 @@ class PilotProfileViewSet(viewsets.ModelViewSet):
             return Response({'detail': '飞手资料不存在'}, status=status.HTTP_404_NOT_FOUND)
 
         profile = request.user.pilot_profile
-        profile.lat = request.data.get('lat', profile.lat)
-        profile.lng = request.data.get('lng', profile.lng)
-        profile.online_status = request.data.get('online_status', profile.online_status)
-        profile.save()
-        return Response(PilotProfileSerializer(profile).data)
+        serializer = self.get_serializer(
+            profile,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class PilotResumeViewSet(viewsets.ModelViewSet):
@@ -143,14 +146,26 @@ class PilotResumeViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def perform_update(self, serializer):
-        serializer.save()
         pilot = serializer.instance.pilot
 
         # 简历页里允许同步更新飞手基础展示字段，但只能通过上面的 queryset 改自己的简历。
-        for field in ('license_level', 'years_exp', 'skills', 'real_name'):
-            if field in self.request.data:
-                setattr(pilot, field, self.request.data[field])
-        pilot.save()
+        profile_data = {
+            field: self.request.data[field]
+            for field in ('license_level', 'years_exp', 'skills', 'real_name')
+            if field in self.request.data
+        }
+        if profile_data:
+            profile_serializer = PilotProfileSerializer(
+                pilot,
+                data=profile_data,
+                partial=True,
+                context={'request': self.request},
+            )
+            profile_serializer.is_valid(raise_exception=True)
+
+        serializer.save()
+        if profile_data:
+            profile_serializer.save()
 
     def destroy(self, request, *args, **kwargs):
         if not is_admin_user(request.user):

@@ -59,3 +59,33 @@ class RentalRolePermissionTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_invalid_calendar_date_and_past_date_are_rejected(self):
+        self.client.force_authenticate(self.pilot)
+        invalid = self.client.post('/api/rental/orders/', {
+            'device': self.device.pk,
+            'start_date': '2026-13-01',
+            'end_date': '2026-13-02',
+        }, format='json')
+        self.assertEqual(invalid.status_code, 400)
+
+        yesterday = date.today() - timedelta(days=1)
+        past = self.client.post('/api/rental/orders/', {
+            'device': self.device.pk,
+            'start_date': yesterday.isoformat(),
+            'end_date': date.today().isoformat(),
+        }, format='json')
+        self.assertEqual(past.status_code, 400)
+
+    def test_rental_response_contains_calendar_weekdays(self):
+        self.client.force_authenticate(self.pilot)
+        start = date.today() + timedelta(days=1)
+        end = start + timedelta(days=1)
+        response = self.client.post('/api/rental/orders/', {
+            'device': self.device.pk,
+            'start_date': start.isoformat(),
+            'end_date': end.isoformat(),
+        }, format='json')
+        self.assertEqual(response.status_code, 201)
+        weekdays = ('星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日')
+        self.assertEqual(response.data['start_weekday'], weekdays[start.weekday()])

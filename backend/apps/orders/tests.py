@@ -4,10 +4,13 @@ from decimal import Decimal
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from rest_framework.test import APITestCase
 
 from apps.users.models import UserAccount
 
 from .models import WorkOrder
+from .serializers import WorkOrderSerializer
+from .services import gen_order_no
 
 
 class EnterpriseOrderWorkflowTests(TestCase):
@@ -91,3 +94,46 @@ class EnterpriseOrderWorkflowTests(TestCase):
         self.assertEqual(Decimal(response.data['penalty_amount']), Decimal('500.00'))
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, WorkOrder.Status.CANCELLED)
+
+
+class WorkOrderValidationTests(APITestCase):
+    def setUp(self):
+        self.enterprise = UserAccount.objects.create_user(
+            username='enterprise-validation', role=UserAccount.Role.ENTERPRISE,
+        )
+        self.payload = {
+            'work_type': WorkOrder.WorkType.AERIAL,
+            'location': '上海测试点',
+            'execute_time': timezone.now() + timedelta(days=1),
+            'area_or_duration': '2小时',
+            'budget': '1000.00',
+        }
+
+    def test_rejects_budget_below_minimum_and_past_execution(self):
+        low_budget = WorkOrderSerializer(data={**self.payload, 'budget': '99.99'})
+        self.assertFalse(low_budget.is_valid())
+        self.assertIn('budget', low_budget.errors)
+
+        past = WorkOrderSerializer(data={
+            **self.payload,
+            'execute_time': timezone.now() - timedelta(minutes=1),
+        })
+        self.assertFalse(past.is_valid())
+        self.assertIn('execute_time', past.errors)
+
+    def test_order_numbers_are_unique_and_bounded(self):
+        numbers = {gen_order_no() for _ in range(1000)}
+        self.assertEqual(len(numbers), 1000)
+        self.assertTrue(all(number.startswith('WO') and len(number) <= 32 for number in numbers))
+
+    def test_serializer_returns_matching_chinese_weekday(self):
+        order = WorkOrder.objects.create(
+            enterprise=self.enterprise,
+            order_no=gen_order_no(),
+            **self.payload,
+        )
+        data = WorkOrderSerializer(order).data
+        expected = ('星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日')[
+            timezone.localtime(order.execute_time).weekday()
+        ]
+        self.assertEqual(data['execute_weekday'], expected)

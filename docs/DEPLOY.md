@@ -45,7 +45,6 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ### 2. 数据库迁移 + 演示数据
 
 ```powershell
-python manage.py makemigrations users orders jobs rental
 python manage.py migrate
 python manage.py seed_demo
 ```
@@ -66,22 +65,31 @@ python manage.py runserver 8000
 
 访问探活：`http://127.0.0.1:8000/api/common/stats/`
 
-### 4.（可选）切换 MySQL
+### 4. 生产环境（MySQL）
 
 1. 创建库：`CREATE DATABASE flylink DEFAULT CHARSET utf8mb4;`
 2. 设置环境变量后重启：
 
 ```powershell
-$env:DB_ENGINE="mysql"
+$env:DJANGO_SETTINGS_MODULE="config.settings.production"
+$env:DJANGO_SECRET_KEY="请替换为足够长的随机密钥"
+$env:DJANGO_ALLOWED_HOSTS="flylink.example.com"
+$env:CSRF_TRUSTED_ORIGINS="https://flylink.example.com"
+$env:CORS_ALLOWED_ORIGINS="https://flylink.example.com"
 $env:DB_NAME="flylink"
-$env:DB_USER="root"
+$env:DB_USER="flylink"
 $env:DB_PASSWORD="你的密码"
 $env:DB_HOST="127.0.0.1"
 $env:DB_PORT="3306"
 python manage.py migrate
 python manage.py seed_demo
-python manage.py runserver 8000
+python manage.py migrate
+# 使用生产级 WSGI 服务启动 config.wsgi:application
 ```
+
+本地命令默认使用 `config.settings.local`（SQLite、调试模式）；部署入口使用
+`config.settings.production`（MySQL、安全 Cookie、HTTPS/HSTS）。可复制仓库根目录
+`.env.example` 准备生产环境变量，生产配置缺少密钥或域名时会直接拒绝启动。
 
 ---
 

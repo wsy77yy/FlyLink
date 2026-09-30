@@ -6,6 +6,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.users.models import UserAccount
+from apps.common.validators import order_budget_validators
 
 
 def haversine_km(lat1, lng1, lat2, lng2):
@@ -60,7 +61,9 @@ class WorkOrder(models.Model):
     lng = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
     execute_time = models.DateTimeField()
     area_or_duration = models.CharField(max_length=64)
-    budget = models.DecimalField(max_digits=12, decimal_places=2)
+    budget = models.DecimalField(
+        max_digits=12, decimal_places=2, validators=order_budget_validators,
+    )
     license_req = models.CharField(max_length=64, blank=True, default='')
     urgent = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -98,6 +101,37 @@ class WorkOrder(models.Model):
     class Meta:
         db_table = 'work_order'
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(budget__gte=Decimal('100.00')),
+                name='work_order_budget_min_100',
+            ),
+            models.CheckConstraint(
+                check=models.Q(match_radius_km__gt=0),
+                name='work_order_match_radius_positive',
+            ),
+            models.CheckConstraint(
+                check=models.Q(platform_fee_rate__gte=0, platform_fee_rate__lte=1),
+                name='work_order_fee_rate_0_1',
+            ),
+            models.CheckConstraint(
+                check=models.Q(
+                    escrow_amount__gte=0,
+                    deposit_amount__gte=0,
+                    balance_amount__gte=0,
+                    cancellation_penalty__gte=0,
+                ),
+                name='work_order_amounts_nonnegative',
+            ),
+            models.CheckConstraint(
+                check=models.Q(lat__isnull=True) | models.Q(lat__gte=-90, lat__lte=90),
+                name='work_order_lat_range',
+            ),
+            models.CheckConstraint(
+                check=models.Q(lng__isnull=True) | models.Q(lng__gte=-180, lng__lte=180),
+                name='work_order_lng_range',
+            ),
+        ]
 
 
 class OrderMatchLog(models.Model):
@@ -109,6 +143,11 @@ class OrderMatchLog(models.Model):
 
     class Meta:
         db_table = 'order_match_log'
+        constraints = [
+            models.UniqueConstraint(fields=['order', 'pilot'], name='unique_order_pilot_match'),
+            models.CheckConstraint(check=models.Q(distance_km__gte=0), name='match_distance_nonnegative'),
+            models.CheckConstraint(check=models.Q(score__gte=0, score__lte=100), name='match_score_0_100'),
+        ]
 
 
 class FlightPlan(models.Model):
@@ -168,3 +207,9 @@ class Settlement(models.Model):
 
     class Meta:
         db_table = 'settlement'
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(total_amount__gte=0, platform_fee__gte=0, pilot_income__gte=0),
+                name='settlement_amounts_nonnegative',
+            ),
+        ]

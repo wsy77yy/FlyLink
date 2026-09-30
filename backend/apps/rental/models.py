@@ -28,6 +28,13 @@ class DroneDevice(models.Model):
     class Meta:
         db_table = 'drone_device'
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(daily_price__gte=0, monthly_price__gte=0, deposit__gte=0, depreciation__gte=0),
+                name='device_amounts_nonnegative',
+            ),
+            models.CheckConstraint(check=models.Q(stock__gte=0), name='device_stock_nonnegative'),
+        ]
 
 
 class MaintenanceRecord(models.Model):
@@ -39,6 +46,9 @@ class MaintenanceRecord(models.Model):
     class Meta:
         db_table = 'maintenance_record'
         ordering = ['-maintained_at']
+        constraints = [
+            models.CheckConstraint(check=models.Q(cost__gte=0), name='maintenance_cost_nonnegative'),
+        ]
 
 
 class RentalOrder(models.Model):
@@ -65,10 +75,24 @@ class RentalOrder(models.Model):
     rent_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING_PAY)
     damage_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    credit_score_snapshot = models.IntegerField(default=0)
+    credit_score_snapshot = models.IntegerField(default=600)
     remark = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'rental_order'
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(end_date__gte=models.F('start_date')),
+                name='rental_dates_ordered',
+            ),
+            models.CheckConstraint(
+                check=models.Q(deposit_paid__gte=0, insurance_fee__gte=0, rent_amount__gte=0, damage_fee__gte=0),
+                name='rental_amounts_nonnegative',
+            ),
+            models.CheckConstraint(
+                check=models.Q(credit_score_snapshot__gte=300, credit_score_snapshot__lte=1000),
+                name='rental_credit_score_300_1000',
+            ),
+        ]

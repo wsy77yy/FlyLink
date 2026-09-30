@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from apps.users.models import UserAccount
+from apps.common.validators import SALARY_MAX, SALARY_MIN
 
 from .models import (
     JobPost,
@@ -37,6 +38,22 @@ class JobPostSerializer(serializers.ModelSerializer):
 
         CLOSED 之后不能重新打开。
         """
+
+        salary_min = attrs.get(
+            'salary_min', getattr(self.instance, 'salary_min', None),
+        )
+        salary_max = attrs.get(
+            'salary_max', getattr(self.instance, 'salary_max', None),
+        )
+        errors = {}
+        if salary_min is not None and not SALARY_MIN <= salary_min <= SALARY_MAX:
+            errors['salary_min'] = f'最低月薪必须在 {SALARY_MIN} 到 {SALARY_MAX} 元之间。'
+        if salary_max is not None and not SALARY_MIN <= salary_max <= SALARY_MAX:
+            errors['salary_max'] = f'最高月薪必须在 {SALARY_MIN} 到 {SALARY_MAX} 元之间。'
+        if salary_min is not None and salary_max is not None and salary_max < salary_min:
+            errors['salary_max'] = '最高月薪不能低于最低月薪。'
+        if errors:
+            raise serializers.ValidationError(errors)
 
         if self.instance:
             old_status = self.instance.status

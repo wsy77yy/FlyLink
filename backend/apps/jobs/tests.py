@@ -2,6 +2,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from apps.jobs.models import JobPost
+from apps.jobs.serializers import JobPostSerializer
 from apps.users.models import UserAccount
 
 
@@ -32,3 +33,21 @@ class JobCloseActionTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.job.refresh_from_db()
         self.assertEqual(self.job.status, JobPost.Status.CLOSED)
+
+    def test_salary_range_and_order_are_validated(self):
+        base = {
+            'title': '测试岗位',
+            'job_type': JobPost.JobType.FULLTIME,
+            'location': '上海',
+            'salary_min': 10000,
+            'salary_max': 18000,
+        }
+        reversed_range = JobPostSerializer(data={
+            **base, 'salary_min': 20000, 'salary_max': 10000,
+        })
+        self.assertFalse(reversed_range.is_valid())
+        self.assertIn('salary_max', reversed_range.errors)
+
+        too_low = JobPostSerializer(data={**base, 'salary_min': 2999})
+        self.assertFalse(too_low.is_valid())
+        self.assertIn('salary_min', too_low.errors)
