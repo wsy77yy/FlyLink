@@ -1,44 +1,62 @@
-from decimal import Decimal
-
-from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
 from apps.users.models import UserAccount
 
 
-class DroneDevice(models.Model):
-    class Status(models.TextChoices):
-        AVAILABLE = 'available', '可租'
-        RENTED = 'rented', '出租中'
-        MAINTAINING = 'maintaining', '维保中'
+class DroneModel(models.Model):
+    """Commercial/catalog data shared by physical drones of the same model."""
 
-    model_name = models.CharField(max_length=128)
+    model_name = models.CharField(max_length=128, unique=True)
     specs = models.JSONField(default=dict, blank=True)
     daily_price = models.DecimalField(max_digits=10, decimal_places=2)
     monthly_price = models.DecimalField(max_digits=10, decimal_places=2)
     deposit = models.DecimalField(max_digits=10, decimal_places=2)
-    stock = models.IntegerField(default=1)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
-    depreciation = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     cover_image = models.URLField(blank=True, default='')
     description = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'drone_device'
+        db_table = 'drone_model'
         ordering = ['-created_at']
         constraints = [
             models.CheckConstraint(
-                check=models.Q(daily_price__gte=0, monthly_price__gte=0, deposit__gte=0, depreciation__gte=0),
-                name='device_amounts_nonnegative',
+                check=models.Q(daily_price__gte=0, monthly_price__gte=0, deposit__gte=0),
+                name='drone_model_prices_nonnegative',
             ),
-            models.CheckConstraint(check=models.Q(stock__gte=0), name='device_stock_nonnegative'),
+        ]
+
+
+class DroneUnit(models.Model):
+    """A single traceable physical drone."""
+
+    class Status(models.TextChoices):
+        AVAILABLE = 'available', '可租'
+        RESERVED = 'reserved', '待支付锁定'
+        RENTED = 'rented', '出租中'
+        MAINTAINING = 'maintaining', '维保中'
+        RETIRED = 'retired', '已退役'
+
+    model = models.ForeignKey(DroneModel, on_delete=models.PROTECT, related_name='units')
+    serial_number = models.CharField(max_length=64, unique=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
+    depreciation = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    acquired_at = models.DateField(default=timezone.localdate)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'drone_unit'
+        ordering = ['serial_number']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(depreciation__gte=0),
+                name='drone_unit_depreciation_nonnegative',
+            ),
         ]
 
 
 class MaintenanceRecord(models.Model):
-    device = models.ForeignKey(DroneDevice, on_delete=models.CASCADE, related_name='maintenances')
+    unit = models.ForeignKey(DroneUnit, on_delete=models.CASCADE, related_name='maintenances')
     content = models.TextField()
     cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     maintained_at = models.DateTimeField(default=timezone.now)
@@ -65,7 +83,7 @@ class RentalOrder(models.Model):
 
     order_no = models.CharField(max_length=32, unique=True)
     user = models.ForeignKey(UserAccount, on_delete=models.CASCADE, related_name='rental_orders')
-    device = models.ForeignKey(DroneDevice, on_delete=models.CASCADE, related_name='rental_orders')
+    unit = models.ForeignKey(DroneUnit, on_delete=models.PROTECT, related_name='rental_orders')
     start_date = models.DateField()
     end_date = models.DateField()
     delivery_type = models.CharField(max_length=20, choices=DeliveryType.choices, default=DeliveryType.PICKUP)

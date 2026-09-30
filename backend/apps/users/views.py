@@ -1,9 +1,11 @@
-from django.db.models import Avg, Q
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, serializers
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+from drf_spectacular.utils import extend_schema, inline_serializer
+
+from apps.common.permissions import is_admin_user
 
 from .models import UserAccount, EnterpriseProfile, PilotProfile, PilotResume, CreditReview
 from .serializers import (
@@ -12,14 +14,25 @@ from .serializers import (
 )
 
 
-def is_admin_user(user):
-    return (
-        user
-        and user.is_authenticated
-        and (user.role == UserAccount.Role.ADMIN or user.is_staff)
-    )
+from .selectors import (
+    visible_credit_reviews,
+    visible_pilot_profiles,
+    visible_pilot_resumes,
+)
+from .services import create_credit_review
 
 
+@extend_schema(
+    request=RegisterSerializer,
+    responses=inline_serializer(
+        name='RegisterResponse',
+        fields={
+            'user': UserSerializer(),
+            'access': serializers.CharField(),
+            'refresh': serializers.CharField(),
+        },
+    ),
+)
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def register(request):
@@ -34,6 +47,7 @@ def register(request):
     }, status=status.HTTP_201_CREATED)
 
 
+@extend_schema(responses=UserSerializer)
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def me(request):
@@ -53,20 +67,7 @@ class PilotProfileViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        user = self.request.user
-
-        # 修改资料时，飞手只能改自己；管理员可以管理全部。
-        if self.action in ('update', 'partial_update', 'destroy'):
-            if not user.is_authenticated:
-                return qs.none()
-            if is_admin_user(user):
-                return qs
-            if user.role == UserAccount.Role.PILOT:
-                return qs.filter(user=user)
-            return qs.none()
-
-        return qs
+        return visible_pilot_profiles(user=self.request.user, action=self.action)
 
     def create(self, request, *args, **kwargs):
         # 资料通常在注册时自动创建，普通用户不应手动创建他人资料。
@@ -104,29 +105,11 @@ class PilotResumeViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        user = self.request.user
-
-        # 修改简历时，飞手只能改自己的简历；管理员可以管理全部。
-        if self.action in ('update', 'partial_update', 'destroy'):
-            if not user.is_authenticated:
-                return qs.none()
-            if is_admin_user(user):
-                return qs
-            if user.role == UserAccount.Role.PILOT and hasattr(user, 'pilot_profile'):
-                return qs.filter(pilot=user.pilot_profile)
-            return qs.none()
-
-        if self.request.query_params.get('mine') == '1':
-            if not user.is_authenticated:
-                return qs.none()
-            if is_admin_user(user):
-                return qs
-            if user.role == UserAccount.Role.PILOT and hasattr(user, 'pilot_profile'):
-                return qs.filter(pilot=user.pilot_profile)
-            return qs.none()
-
-        return qs
+        return visible_pilot_resumes(
+            user=self.request.user,
+            action=self.action,
+            mine=self.request.query_params.get('mine') == '1',
+        )
 
     def create(self, request, *args, **kwargs):
         if request.user.role != UserAccount.Role.PILOT:
@@ -179,17 +162,7 @@ class CreditReviewViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        user = self.request.user
-
-        if not user.is_authenticated:
-            return qs.none()
-
-        if is_admin_user(user):
-            return qs
-
-        # 普通用户只能看到自己发出的评价和收到的评价。
-        return qs.filter(Q(from_user=user) | Q(to_user=user))
+        return visible_credit_reviews(user=self.request.user)
 
     def update(self, request, *args, **kwargs):
         if not is_admin_user(request.user):
@@ -216,9 +189,7 @@ class CreditReviewViewSet(viewsets.ModelViewSet):
         if score is None or score < 1 or score > 5:
             raise ValidationError({'score': '评分必须在 1 到 5 之间'})
 
-        review = serializer.save(from_user=self.request.user)
-        avg = CreditReview.objects.filter(to_user=review.to_user).aggregate(a=Avg('score'))['a'] or 3
-
-        # 评价映射到信用画像：基础 500 + 均分*100
-        review.to_user.credit_score = min(1000, max(300, int(500 + float(avg) * 100)))
-        review.to_user.save(update_fields=['credit_score'])
+        serializer.instance = create_credit_review(
+            from_user=self.request.user,
+            validated_data=serializer.validated_data,
+        )

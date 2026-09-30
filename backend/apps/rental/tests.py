@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 
 from apps.users.models import UserAccount
 
-from .models import DroneDevice, RentalOrder
+from .models import DroneModel, DroneUnit, RentalOrder
 
 
 class RentalRolePermissionTests(TestCase):
@@ -26,13 +26,17 @@ class RentalRolePermissionTests(TestCase):
             password='test-pass',
             role=UserAccount.Role.PILOT,
         )
-        self.device = DroneDevice.objects.create(
+        self.device = DroneModel.objects.create(
             model_name='Test Drone',
             daily_price=100,
             monthly_price=2000,
             deposit=500,
-            stock=2,
         )
+        self.unit = DroneUnit.objects.create(
+            model=self.device,
+            serial_number='TEST-UNIT-001',
+        )
+        DroneUnit.objects.create(model=self.device, serial_number='TEST-UNIT-002')
 
     def test_admin_cannot_create_rental_order(self):
         self.client.force_authenticate(self.admin)
@@ -45,7 +49,7 @@ class RentalRolePermissionTests(TestCase):
         order = RentalOrder.objects.create(
             order_no='RL-OTHER-001',
             user=self.other_pilot,
-            device=self.device,
+            unit=self.unit,
             start_date=date.today(),
             end_date=date.today() + timedelta(days=1),
             deposit_paid=500,
@@ -89,3 +93,49 @@ class RentalRolePermissionTests(TestCase):
         self.assertEqual(response.status_code, 201)
         weekdays = ('星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日')
         self.assertEqual(response.data['start_weekday'], weekdays[start.weekday()])
+
+    def test_two_pending_orders_reserve_distinct_units(self):
+        self.client.force_authenticate(self.pilot)
+        start = date.today() + timedelta(days=2)
+        payload = {
+            'device': self.device.pk,
+            'start_date': start.isoformat(),
+            'end_date': (start + timedelta(days=1)).isoformat(),
+        }
+        first = self.client.post('/api/rental/orders/', payload, format='json')
+        second = self.client.post('/api/rental/orders/', payload, format='json')
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertNotEqual(first.data['serial_number'], second.data['serial_number'])
+        self.assertEqual(
+            DroneUnit.objects.filter(status=DroneUnit.Status.RESERVED).count(),
+            2,
+        )
+
+    def test_full_rental_unit_state_workflow(self):
+        self.client.force_authenticate(self.pilot)
+        start = date.today() + timedelta(days=3)
+        created = self.client.post('/api/rental/orders/', {
+            'device': self.device.pk,
+            'start_date': start.isoformat(),
+            'end_date': (start + timedelta(days=1)).isoformat(),
+        }, format='json')
+        order_id = created.data['id']
+
+        paid = self.client.post(f'/api/rental/orders/{order_id}/pay/')
+        returned = self.client.post(f'/api/rental/orders/{order_id}/return_device/')
+        self.client.force_authenticate(self.admin)
+        inspected = self.client.post(
+            f'/api/rental/orders/{order_id}/inspect/',
+            {'damage_fee': '25.00'},
+            format='json',
+        )
+
+        self.assertEqual(paid.status_code, 200)
+        self.assertEqual(returned.status_code, 200)
+        self.assertEqual(inspected.status_code, 200)
+        unit = DroneUnit.objects.get(serial_number=created.data['serial_number'])
+        self.assertEqual(unit.status, DroneUnit.Status.MAINTAINING)
+        self.assertEqual(unit.depreciation, 25)
+        self.assertEqual(unit.maintenances.count(), 1)

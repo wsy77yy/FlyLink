@@ -206,7 +206,7 @@
 
 ## 4. 模块三：设备租赁（rental）
 
-### drone_device（设备台账）
+### drone_model（设备型号目录）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -214,16 +214,23 @@
 | specs | JSON | 参数 |
 | daily_price / monthly_price | DECIMAL | |
 | deposit | DECIMAL | |
-| stock | INT | |
-| status | VARCHAR(20) | available/rented/maintaining |
-| depreciation | DECIMAL | 折旧 |
 | cover_image | VARCHAR(255) | |
+
+### drone_unit（设备实体台账）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| model_id | FK → drone_model | 所属型号 |
+| serial_number | VARCHAR(64) UNIQUE | 实体序列号 |
+| status | VARCHAR(20) | available/reserved/rented/maintaining/retired |
+| depreciation | DECIMAL | 单台累计折旧 |
+| acquired_at | DATE | 入库日期 |
 
 ### maintenance_record（维保记录）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| device_id | FK | |
+| unit_id | FK → drone_unit | 维修对应的实体设备 |
 | content | TEXT | |
 | cost | DECIMAL | |
 | maintained_at | DATETIME | |
@@ -233,7 +240,7 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | order_no | VARCHAR(32) | |
-| user_id / device_id | FK | |
+| user_id / unit_id | FK | 租赁用户与实际分配实体 |
 | start_date / end_date | DATE | 合法自然日，结束日期不得早于开始日期；接口自动返回对应星期 |
 | delivery_type | VARCHAR(20) | pickup/express |
 | deposit_paid | DECIMAL | |
@@ -264,6 +271,6 @@ enterprise ─ job_post ─ job_application ─┬─ chat_message
                                          ├─ labor_contract
                                          └─ agency_fee
 
-drone_device ─┬─ maintenance_record
-              └─ rental_order ─ user
+drone_model ─ drone_unit ─┬─ maintenance_record
+                          └─ rental_order ─ user
 ```

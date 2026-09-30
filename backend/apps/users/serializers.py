@@ -6,6 +6,13 @@ from rest_framework.validators import UniqueValidator
 from .models import UserAccount, EnterpriseProfile, PilotProfile, PilotResume, CreditReview
 
 
+USER_ROLE_CHOICES = list(UserAccount.Role.choices)
+REGISTER_ROLE_CHOICES = [
+    (UserAccount.Role.ENTERPRISE, '需求企业方'),
+    (UserAccount.Role.PILOT, '个人飞手'),
+]
+
+
 class UserSerializer(serializers.ModelSerializer):
     """当前登录用户本人使用，允许返回手机号、邮箱等账户信息。"""
 
@@ -29,7 +36,7 @@ class RegisterSerializer(serializers.Serializer):
         validators=[UniqueValidator(queryset=UserAccount.objects.all(), message='该用户名已被使用。')],
     )
     password = serializers.CharField(write_only=True)
-    role = serializers.ChoiceField(choices=['enterprise', 'pilot'])
+    role = serializers.ChoiceField(choices=REGISTER_ROLE_CHOICES)
     phone = serializers.CharField(required=False, allow_blank=True)
     company_name = serializers.CharField(required=False, allow_blank=True)
     real_name = serializers.CharField(required=False, allow_blank=True)

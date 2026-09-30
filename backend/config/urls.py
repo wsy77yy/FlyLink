@@ -7,6 +7,7 @@ from django.conf.urls.static import static
 from django.views.decorators.cache import never_cache
 from django.views.static import serve as static_serve
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 
 @never_cache
@@ -22,6 +23,12 @@ def spa_index(_request, _path=None):
 
 
 urlpatterns = [
+    path('api/schema/', SpectacularAPIView.as_view(), name='api-schema'),
+    path(
+        'api/docs/',
+        SpectacularSwaggerView.as_view(url_name='api-schema'),
+        name='api-docs',
+    ),
     path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/users/', include('apps.users.urls')),

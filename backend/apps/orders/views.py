@@ -1,9 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
-from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
@@ -11,6 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from apps.users.models import UserAccount
+from apps.common.permissions import is_admin_user
 from .models import (
     WorkOrder,
     OrderMatchLog,
@@ -28,134 +27,22 @@ from .serializers import (
     WorkMediaSerializer,
     SettlementSerializer,
 )
-from .services import smart_match_and_push, gen_order_no
-
-
-def is_admin_user(user):
-    return (
-        user
-        and user.is_authenticated
-        and (
-            user.role == UserAccount.Role.ADMIN
-            or user.is_staff
-        )
-    )
+from .selectors import visible_work_orders, work_order_queryset
+from .services import create_work_order, smart_match_and_push
 
 
 class WorkOrderViewSet(viewsets.ModelViewSet):
-    queryset = (
-        WorkOrder.objects
-        .select_related('enterprise', 'pilot')
-        .prefetch_related('medias')
-        .all()
-    )
+    queryset = work_order_queryset()
     serializer_class = WorkOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        user = self.request.user
-        scope = self.request.query_params.get('scope')
-        status_q = self.request.query_params.get('status')
-
-        if status_q:
-            qs = qs.filter(status=status_q)
-
-        if not user.is_authenticated:
-            return qs.none()
-
-        # 管理员可以查看全部订单
-        if is_admin_user(user):
-            return qs
-
-        # 飞手抢单时，只能看到尚未被别人接单的订单
-        if self.action == 'accept':
-            if user.role == UserAccount.Role.PILOT:
-                return qs.filter(
-                    status__in=[
-                        WorkOrder.Status.PENDING,
-                        WorkOrder.Status.MATCHED,
-                    ],
-                    pilot__isnull=True,
-                )
-            return qs.none()
-
-        # 企业侧操作：只能操作自己发布的订单
-        if self.action in (
-            'update',
-            'partial_update',
-            'destroy',
-            'rematch',
-            'accept_delivery',
-            'pay_deposit',
-            'pay_balance',
-            'cancel_order',
-        ):
-            if user.role == UserAccount.Role.ENTERPRISE:
-                return qs.filter(enterprise=user)
-            return qs.none()
-
-        # 飞手侧操作：只能操作自己承接的订单
-        if self.action in (
-            'declare_flight',
-            'start_work',
-            'upload_track',
-            'upload_media',
-            'submit_work',
-            'arrive',
-            'finish_work',
-        ):
-            if user.role == UserAccount.Role.PILOT:
-                return qs.filter(pilot=user)
-            return qs.none()
-
-        # 进度查询：企业和飞手只能查看与自己有关的订单
-        if self.action == 'progress':
-            if user.role == UserAccount.Role.ENTERPRISE:
-                return qs.filter(enterprise=user)
-
-            if user.role == UserAccount.Role.PILOT:
-                return qs.filter(pilot=user)
-
-            return qs.none()
-
-        # 我的订单
-        if scope == 'mine':
-            if user.role == UserAccount.Role.ENTERPRISE:
-                return qs.filter(enterprise=user)
-
-            if user.role == UserAccount.Role.PILOT:
-                return qs.filter(pilot=user)
-
-            return qs.none()
-
-        # 抢单大厅
-        if scope == 'hall' and user.role == UserAccount.Role.PILOT:
-            return qs.filter(
-                status__in=[
-                    WorkOrder.Status.PENDING,
-                    WorkOrder.Status.MATCHED,
-                ],
-                pilot__isnull=True,
-            )
-
-        # 默认可见范围
-        if user.role == UserAccount.Role.ENTERPRISE:
-            return qs.filter(enterprise=user)
-
-        if user.role == UserAccount.Role.PILOT:
-            return qs.filter(
-                Q(pilot=user)
-                | Q(
-                    status__in=[
-                        WorkOrder.Status.PENDING,
-                        WorkOrder.Status.MATCHED,
-                    ],
-                    pilot__isnull=True,
-                )
-            )
-
-        return qs.none()
+        return visible_work_orders(
+            user=self.request.user,
+            action=self.action,
+            scope=self.request.query_params.get('scope'),
+            status_value=self.request.query_params.get('status'),
+        )
 
     def perform_create(self, serializer):
         if self.request.user.role != UserAccount.Role.ENTERPRISE:
@@ -163,24 +50,10 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                 '仅企业用户可发布需求订单'
             )
 
-        order = serializer.save(
+        serializer.instance = create_work_order(
             enterprise=self.request.user,
-            order_no=gen_order_no(),
-            escrow_amount=Decimal('0'),
-            platform_fee_rate=Decimal(
-                str(settings.PLATFORM_FEE_RATE)
-            ),
-            deposit_amount=(
-                serializer.validated_data['budget']
-                * Decimal('0.20')
-            ).quantize(Decimal('0.01')),
-            balance_amount=(
-                serializer.validated_data['budget']
-                * Decimal('0.80')
-            ).quantize(Decimal('0.01')),
+            validated_data=serializer.validated_data,
         )
-
-        smart_match_and_push(order)
 
     def require_enterprise_owner_or_admin(
         self,

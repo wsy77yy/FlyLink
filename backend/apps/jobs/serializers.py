@@ -26,7 +26,7 @@ class JobPostSerializer(serializers.ModelSerializer):
             'created_at',
         ]
 
-    def get_company_name(self, obj):
+    def get_company_name(self, obj) -> str:
         if hasattr(obj.enterprise, 'enterprise_profile'):
             return obj.enterprise.enterprise_profile.company_name
         return obj.enterprise.username

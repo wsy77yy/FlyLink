@@ -46,6 +46,27 @@ FlyLink（飞链）是面向低空经济的无人机飞手供需匹配综合服�
 - JWT 认证（djangorestframework-simplejwt）
 - django-cors-headers 跨域
 - 本地默认 SQLite，生产切换 MySQL
+- View 只负责 HTTP 编排；写业务进入 `services.py`，读查询进入 `selectors.py`
+- 角色权限集中在 `apps/common/permissions.py`
+- OpenAPI 3 + Swagger UI 自动文档
+- JSON 结构化日志与 `X-Request-ID` 请求追踪
+
+### 后端分层
+
+```
+HTTP request
+    ↓
+View / Serializer（协议、输入校验、响应）
+    ↓
+Service（事务、状态迁移、跨模型写操作）
+    ↓
+Selector（可见范围、关联预取、聚合）
+    ↓
+Model / Database constraints
+```
+
+订单匹配在一次查询中聚合飞手历史评分，并批量写入匹配日志，查询数量不再随
+候选飞手数量线性增长。
 
 ### 目录结构
 
@@ -59,7 +80,7 @@ FlyLink/
 │       ├── users/           # 用户、角色、信用画像
 │       ├── orders/          # 模块一：次结商单
 │       ├── jobs/            # 模块二：长期招聘
-│       ├── rental/          # 模块三：设备租赁
+│       ├── rental/          # 模块三：设备型号、实体资产与租赁
 │       └── common/          # 公共工具、统计接口
 ├── frontend/                # Vue3 前端
 │   ├── src/

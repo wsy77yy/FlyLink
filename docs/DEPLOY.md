@@ -65,6 +65,11 @@ python manage.py runserver 8000
 
 访问探活：`http://127.0.0.1:8000/api/common/stats/`
 
+接口文档：`http://127.0.0.1:8000/api/docs/`
+
+服务输出 JSON 结构化日志，每个响应携带 `X-Request-ID`；可以通过
+`LOG_LEVEL=WARNING` 等环境变量调整日志级别。
+
 ### 4. 生产环境（MySQL）
 
 1. 创建库：`CREATE DATABASE flylink DEFAULT CHARSET utf8mb4;`

@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 from apps.users.models import UserAccount
 from apps.jobs.models import JobPost
 from apps.orders.models import WorkOrder
-from apps.rental.models import DroneDevice
+from apps.rental.models import DroneModel, DroneUnit
 
 
 class AdminStatsTests(TestCase):
@@ -46,6 +46,19 @@ class AdminStatsTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_response_has_request_id(self):
+        response = self.client.get('/api/common/stats/', HTTP_X_REQUEST_ID='trace-test-001')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['X-Request-ID'], 'trace-test-001')
+
+    def test_openapi_schema_and_swagger_are_available(self):
+        schema = self.client.get('/api/schema/')
+        docs = self.client.get('/api/docs/')
+
+        self.assertEqual(schema.status_code, 200)
+        self.assertEqual(docs.status_code, 200)
+        self.assertIn('/api/orders/', schema.content.decode('utf-8'))
+
 
 class SeedDemoTests(TestCase):
     def test_seed_demo_is_idempotent(self):
@@ -57,4 +70,5 @@ class SeedDemoTests(TestCase):
         self.assertEqual(UserAccount.objects.filter(username='pilot1').count(), 1)
         self.assertEqual(WorkOrder.objects.filter(remark__startswith='seed_demo:').count(), 2)
         self.assertEqual(JobPost.objects.filter(title='资深植保飞手（全职）').count(), 1)
-        self.assertEqual(DroneDevice.objects.count(), 3)
+        self.assertEqual(DroneModel.objects.count(), 3)
+        self.assertEqual(DroneUnit.objects.count(), 10)

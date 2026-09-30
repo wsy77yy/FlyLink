@@ -8,7 +8,8 @@ from apps.users.models import UserAccount, EnterpriseProfile, PilotProfile, Pilo
 from apps.orders.models import WorkOrder
 from apps.orders.services import smart_match_and_push, gen_order_no
 from apps.jobs.models import JobPost
-from apps.rental.models import DroneDevice
+from apps.rental.models import DroneModel
+from apps.rental.services import update_drone_model
 
 
 class Command(BaseCommand):
@@ -144,40 +145,40 @@ class Command(BaseCommand):
             },
         )
 
-        DroneDevice.objects.update_or_create(
+        model, _ = DroneModel.objects.update_or_create(
             model_name='DJI Agras T40 植保机',
             defaults={
                 'specs': {'载荷': '40kg', '续航': '15min', '喷幅': '11m', 'RTK': '支持'},
                 'daily_price': Decimal('680.00'),
                 'monthly_price': Decimal('12800.00'),
                 'deposit': Decimal('15000.00'),
-                'stock': 3,
                 'cover_image': '',
                 'description': '大田植保主力机型，适合大面积作业。',
             },
         )
-        DroneDevice.objects.update_or_create(
+        update_drone_model(model=model, validated_data={'stock': 3})
+        model, _ = DroneModel.objects.update_or_create(
             model_name='DJI Mavic 3 Enterprise',
             defaults={
                 'specs': {'传感器': '4/3 CMOS', '续航': '45min', '红外': '可选', '重量': '915g'},
                 'daily_price': Decimal('320.00'),
                 'monthly_price': Decimal('5600.00'),
                 'deposit': Decimal('8000.00'),
-                'stock': 5,
                 'description': '轻便航拍巡检一体机，适合城市与园区作业。',
             },
         )
-        DroneDevice.objects.update_or_create(
+        update_drone_model(model=model, validated_data={'stock': 5})
+        model, _ = DroneModel.objects.update_or_create(
             model_name='大疆经纬 M300 RTK',
             defaults={
                 'specs': {'续航': '55min', '防护': 'IP45', '负载': '多负载', 'RTK': '厘米级'},
                 'daily_price': Decimal('880.00'),
                 'monthly_price': Decimal('16800.00'),
                 'deposit': Decimal('25000.00'),
-                'stock': 2,
                 'description': '行业旗舰，测绘巡检首选。',
             },
         )
+        update_drone_model(model=model, validated_data={'stock': 2})
 
         self.stdout.write(self.style.SUCCESS(
             '演示数据已就绪：admin/admin123, enterprise1/demo1234, pilot1/demo1234'

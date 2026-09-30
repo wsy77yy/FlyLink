@@ -60,15 +60,15 @@ class WorkOrderSerializer(serializers.ModelSerializer):
             'platform_fee_rate', 'cancellation_penalty', 'execute_weekday',
         ]
 
-    def get_enterprise_name(self, obj):
+    def get_enterprise_name(self, obj) -> str:
         if hasattr(obj.enterprise, 'enterprise_profile'):
             return obj.enterprise.enterprise_profile.company_name
         return obj.enterprise.username
 
-    def get_work_type_display(self, obj):
+    def get_work_type_display(self, obj) -> str:
         return obj.work_type_label
 
-    def get_execute_weekday(self, obj):
+    def get_execute_weekday(self, obj) -> str:
         value = timezone.localtime(obj.execute_time) if obj.execute_time else None
         return weekday_zh(value)
 

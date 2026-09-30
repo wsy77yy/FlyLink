@@ -9,7 +9,8 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from apps.users.models import UserAccount, PilotProfile
+from apps.common.permissions import is_admin_user
+from apps.users.models import UserAccount
 
 from .models import (
     JobPost,
@@ -28,39 +29,8 @@ from .serializers import (
 )
 
 
-def is_admin_user(user):
-    return (
-        user
-        and user.is_authenticated
-        and (
-            user.role == UserAccount.Role.ADMIN
-            or user.is_staff
-        )
-    )
-
-
-def ai_match_score(job: JobPost, pilot: PilotProfile) -> float:
-    score = 50.0
-
-    if (
-        job.license_req
-        and job.license_req.lower()
-        in (pilot.license_level or '').lower()
-    ):
-        score += 25
-    elif not job.license_req:
-        score += 10
-
-    skill_set = set(pilot.skills or [])
-    tag_set = set(job.tags or [])
-
-    if skill_set and tag_set:
-        overlap = len(skill_set & tag_set) / max(len(tag_set), 1)
-        score += overlap * 25
-
-    score += min(pilot.years_exp, 10) * 1.5
-
-    return round(min(score, 100), 2)
+from .selectors import visible_job_applications, visible_job_posts
+from .services import ai_match_score, create_job_post, recommend_pilots
 
 
 class JobPostViewSet(viewsets.ModelViewSet):
@@ -69,49 +39,12 @@ class JobPostViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        user = self.request.user
-
-        # 支持按岗位状态筛选
-        if self.request.query_params.get('status'):
-            qs = qs.filter(
-                status=self.request.query_params['status']
-            )
-
-        # 修改、删除、重新推荐、关闭：
-        # 只有岗位所属企业或管理员可以操作
-        if self.action in (
-            'update',
-            'partial_update',
-            'destroy',
-            'recommend',
-            'close',
-        ):
-            if not user.is_authenticated:
-                return qs.none()
-
-            if is_admin_user(user):
-                return qs
-
-            if user.role == UserAccount.Role.ENTERPRISE:
-                return qs.filter(enterprise=user)
-
-            return qs.none()
-
-        # 我的岗位
-        if self.request.query_params.get('mine') == '1':
-            if not user.is_authenticated:
-                return qs.none()
-
-            if is_admin_user(user):
-                return qs
-
-            if user.role == UserAccount.Role.ENTERPRISE:
-                return qs.filter(enterprise=user)
-
-            return qs.none()
-
-        return qs
+        return visible_job_posts(
+            user=self.request.user,
+            action=self.action,
+            mine=self.request.query_params.get('mine') == '1',
+            status_value=self.request.query_params.get('status'),
+        )
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -121,13 +54,10 @@ class JobPostViewSet(viewsets.ModelViewSet):
                 '只有企业用户可以发布招聘岗位。'
             )
 
-        job = serializer.save(
+        serializer.instance = create_job_post(
             enterprise=user,
-            status=JobPost.Status.OPEN,
+            validated_data=serializer.validated_data,
         )
-
-        # 创建后自动 AI 推荐飞手
-        self._ai_recommend(job)
 
     def perform_update(self, serializer):
         """
@@ -167,46 +97,7 @@ class JobPostViewSet(viewsets.ModelViewSet):
         instance.delete()
 
     def _ai_recommend(self, job: JobPost):
-        """
-        只有 OPEN 状态的岗位才能产生 AI 推荐。
-
-        使用事务和行锁，避免岗位关闭后仍然继续生成推荐。
-        """
-
-        with transaction.atomic():
-            locked_job = (
-                JobPost.objects
-                .select_for_update()
-                .get(pk=job.pk)
-            )
-
-            if locked_job.status != JobPost.Status.OPEN:
-                return
-
-            pilots = (
-                PilotProfile.objects
-                .select_related('user')
-                .all()[:50]
-            )
-
-            for pilot_profile in pilots:
-                score = ai_match_score(
-                    locked_job,
-                    pilot_profile,
-                )
-
-                if score < 55:
-                    continue
-
-                JobApplication.objects.get_or_create(
-                    job=locked_job,
-                    pilot=pilot_profile.user,
-                    defaults={
-                        'match_score': score,
-                        'status': JobApplication.Status.RECOMMENDED,
-                        'source': JobApplication.Source.AI,
-                    },
-                )
+        return recommend_pilots(job=job)
 
     @action(detail=True, methods=['post'])
     def recommend(self, request, pk=None):
@@ -299,22 +190,7 @@ class JobApplicationViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        user = self.request.user
-
-        if not user.is_authenticated:
-            return qs.none()
-
-        if is_admin_user(user):
-            return qs
-
-        if user.role == UserAccount.Role.PILOT:
-            return qs.filter(pilot=user)
-
-        if user.role == UserAccount.Role.ENTERPRISE:
-            return qs.filter(job__enterprise=user)
-
-        return qs.none()
+        return visible_job_applications(user=self.request.user)
 
     def perform_create(self, serializer):
         """
