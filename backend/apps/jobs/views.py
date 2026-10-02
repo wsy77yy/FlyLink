@@ -212,6 +212,10 @@ class JobApplicationViewSet(viewsets.ModelViewSet):
             raise PermissionDenied(
                 '只有飞手可以主动投递招聘岗位。'
             )
+        profile = getattr(user, 'pilot_profile', None)
+        if not profile or not profile.verified:
+            reason = getattr(profile, 'review_reason', '') if profile else ''
+            raise PermissionDenied(reason or '实名认证与飞行资质尚未审核通过，请先到个人中心补充资料。')
 
         job = serializer.validated_data['job']
 
@@ -404,6 +408,38 @@ class JobApplicationViewSet(viewsets.ModelViewSet):
             )
 
         instance.delete()
+
+    @action(detail=True, methods=['post'], url_path='schedule-interview')
+    def schedule_interview(self, request, pk=None):
+        app = self.get_object()
+        if not (is_admin_user(request.user) or (request.user.role == UserAccount.Role.ENTERPRISE and app.job.enterprise_id == request.user.id)):
+            return Response({'detail': '只有岗位所属企业可以安排面试。'}, status=403)
+        if app.status not in (JobApplication.Status.RECOMMENDED, JobApplication.Status.APPLIED, JobApplication.Status.INTERVIEW):
+            return Response({'detail': '当前申请状态不能安排面试。'}, status=400)
+        interview_at = request.data.get('interview_at')
+        if not interview_at:
+            return Response({'detail': '请填写面试时间。'}, status=400)
+        app.interview_at = interview_at
+        app.interview_note = (request.data.get('interview_note') or '').strip()
+        app.status = JobApplication.Status.INTERVIEW
+        app.save(update_fields=['interview_at', 'interview_note', 'status', 'status_updated_at'])
+        ChatMessage.objects.create(application=app, sender=request.user, content=f'面试安排：{interview_at} {app.interview_note}'.strip(), msg_type=ChatMessage.MsgType.INTERVIEW)
+        return Response(JobApplicationSerializer(app, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        app = self.get_object()
+        if not (is_admin_user(request.user) or (request.user.role == UserAccount.Role.ENTERPRISE and app.job.enterprise_id == request.user.id)):
+            return Response({'detail': '只有岗位所属企业可以拒绝申请。'}, status=403)
+        if app.status in (JobApplication.Status.HIRED, JobApplication.Status.REJECTED):
+            return Response({'detail': '该申请已经结束。'}, status=400)
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'detail': '请填写拒绝原因。'}, status=400)
+        app.status = JobApplication.Status.REJECTED
+        app.rejection_reason = reason
+        app.save(update_fields=['status', 'rejection_reason', 'status_updated_at'])
+        return Response(JobApplicationSerializer(app, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
     def chat(self, request, pk=None):

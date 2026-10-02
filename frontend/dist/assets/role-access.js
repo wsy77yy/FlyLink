@@ -3,8 +3,8 @@ const role=()=>currentUser()?.role||"";
 const allowed=(path,userRole=role())=>{
   if(!userRole)return path==="/"||path==="/jobs"||path==="/rental"||path==="/login"||path==="/register";
   if(userRole==="admin")return path==="/"||path==="/admin-dashboard.html"||path==="/profile";
-  if(userRole==="enterprise")return path==="/"||path==="/orders/publish"||path.startsWith("/orders/")&&!path.startsWith("/orders/hall")||path==="/jobs"||path==="/jobs/publish"||path.startsWith("/jobs/chat")||path==="/rental"||path.startsWith("/rental/order/")||path==="/rental/my"||path==="/profile";
-  if(userRole==="pilot")return path==="/"||path==="/orders/hall"||/^\/orders\/\d+/.test(path)||path==="/jobs"||path==="/jobs/resume"||path.startsWith("/jobs/chat")||path==="/rental"||path.startsWith("/rental/order/")||path==="/rental/my"||path==="/profile";
+  if(userRole==="enterprise")return path==="/"||path==="/notifications"||path==="/finance"||path==="/orders/my"||path==="/orders/publish"||path.startsWith("/orders/")&&!path.startsWith("/orders/hall")||path==="/jobs"||path==="/jobs/publish"||path.startsWith("/jobs/chat")||path==="/rental"||path.startsWith("/rental/order/")||path==="/rental/my"||path==="/profile";
+  if(userRole==="pilot")return path==="/"||path==="/notifications"||path==="/finance"||path==="/orders/hall"||/^\/orders\/\d+/.test(path)||path==="/jobs"||path==="/jobs/resume"||path.startsWith("/jobs/chat")||path==="/rental"||path.startsWith("/rental/order/")||path==="/rental/my"||path==="/profile";
   return false;
 };
 

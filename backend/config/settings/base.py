@@ -99,7 +99,7 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
 }
 
-PLATFORM_FEE_RATE = float(os.getenv('PLATFORM_FEE_RATE', '0.08'))
+PLATFORM_FEE_RATE = float(os.getenv('PLATFORM_FEE_RATE', '0.10'))
 AGENCY_FEE_RATE = float(os.getenv('AGENCY_FEE_RATE', '0.12'))
 CREDIT_WAIVE_DEPOSIT_SCORE = int(os.getenv('CREDIT_WAIVE_DEPOSIT_SCORE', '650'))
 

@@ -102,7 +102,7 @@ def parse_rental_dates(start, end):
 
 
 @transaction.atomic
-def create_rental_order(*, user, model_id, start, end, delivery_type, remark=''):
+def create_rental_order(*, user, model_id, start, end, delivery_type, remark='', delivery_address=''):
     start_date, end_date = parse_rental_dates(start, end)
     try:
         model = DroneModel.objects.get(pk=model_id)
@@ -134,6 +134,7 @@ def create_rental_order(*, user, model_id, start, end, delivery_type, remark='')
         'rent_amount': rent,
         'credit_score_snapshot': user.credit_score,
         'remark': remark,
+        'delivery_address': delivery_address,
     }
     for _ in range(2):
         try:
@@ -165,7 +166,8 @@ def pay_rental_order(*, order_id, queryset):
     unit.status = DroneUnit.Status.RENTED
     unit.save(update_fields=['status'])
     order.status = RentalOrder.Status.RENTING
-    order.save(update_fields=['status'])
+    order.paid_at = timezone.now()
+    order.save(update_fields=['status', 'paid_at'])
     return order
 
 
@@ -178,7 +180,8 @@ def request_return(*, order_id, queryset):
     if order.status != RentalOrder.Status.RENTING:
         raise RentalDomainError('当前状态不可申请归还。')
     order.status = RentalOrder.Status.RETURNING
-    order.save(update_fields=['status'])
+    order.return_requested_at = timezone.now()
+    order.save(update_fields=['status', 'return_requested_at'])
     return order
 
 
@@ -207,9 +210,11 @@ def inspect_return(*, order_id, damage_fee):
     unit = DroneUnit.objects.select_for_update().get(pk=order.unit_id)
     refund = max(order.deposit_paid - damage_fee, Decimal('0'))
     order.damage_fee = damage_fee
+    order.deposit_refund = refund
+    order.inspected_at = timezone.now()
     order.status = RentalOrder.Status.SETTLED
     order.remark = f'{order.remark or ""} | 验机退押金 {refund}'.strip()
-    order.save(update_fields=['damage_fee', 'status', 'remark'])
+    order.save(update_fields=['damage_fee', 'deposit_refund', 'inspected_at', 'status', 'remark'])
     if damage_fee:
         unit.depreciation += damage_fee
         unit.status = DroneUnit.Status.MAINTAINING

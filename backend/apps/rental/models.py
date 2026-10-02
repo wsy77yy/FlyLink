@@ -95,6 +95,13 @@ class RentalOrder(models.Model):
     damage_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     credit_score_snapshot = models.IntegerField(default=600)
     remark = models.TextField(blank=True, default='')
+    delivery_address = models.CharField(max_length=255, blank=True, default='')
+    paid_at = models.DateTimeField(null=True, blank=True)
+    return_requested_at = models.DateTimeField(null=True, blank=True)
+    inspected_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.TextField(blank=True, default='')
+    deposit_refund = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -106,7 +113,7 @@ class RentalOrder(models.Model):
                 name='rental_dates_ordered',
             ),
             models.CheckConstraint(
-                check=models.Q(deposit_paid__gte=0, insurance_fee__gte=0, rent_amount__gte=0, damage_fee__gte=0),
+                check=models.Q(deposit_paid__gte=0, insurance_fee__gte=0, rent_amount__gte=0, damage_fee__gte=0, deposit_refund__gte=0),
                 name='rental_amounts_nonnegative',
             ),
             models.CheckConstraint(

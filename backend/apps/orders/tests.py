@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.test import APITestCase
 
-from apps.users.models import UserAccount
+from apps.users.models import UserAccount, PilotProfile
 
 from .models import WorkOrder
 from .serializers import WorkOrderSerializer
@@ -21,6 +21,15 @@ class EnterpriseOrderWorkflowTests(TestCase):
         )
         self.pilot = UserAccount.objects.create_user(
             username='pilot-flow', role=UserAccount.Role.PILOT,
+        )
+        PilotProfile.objects.create(
+            user=self.pilot,
+            real_name='测试飞手',
+            license_level='CAAC-超视距',
+            verified=True,
+            insurance_expiry=(timezone.now() + timedelta(days=365)).date(),
+            aircraft_registered=True,
+            aircraft_registration_no='UAS-TEST-001',
         )
         self.admin = UserAccount.objects.create_user(
             username='admin-flow', role=UserAccount.Role.ADMIN, is_staff=True,
@@ -37,6 +46,10 @@ class EnterpriseOrderWorkflowTests(TestCase):
             area_or_duration='2小时',
             budget=Decimal('10000.00'),
             status=WorkOrder.Status.ACCEPTED,
+            airspace_approved=True,
+            weather_safe=True,
+            compliance_reviewed_at=timezone.now(),
+            weather_checked_at=timezone.now(),
         )
 
     def post_as(self, user, action, data=None):

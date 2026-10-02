@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FlyLink 平台管理数据</title>
     <link rel="stylesheet" href="/assets/index-DM7TVN1r.css" />
-    <link rel="stylesheet" href="/assets/AdminDashboard.css" />
+  <link rel="stylesheet" href="/assets/AdminDashboard.css?v=20261003-order-date-fix-1" />
+    <link rel="stylesheet" href="/assets/first-batch.css?v=20261003-layout-1" />
+    <link rel="stylesheet" href="/assets/first-batch-fixups.css?v=20261002-first-batch-2" />
   </head>
   <body>
     <div class="admin-shell">
@@ -21,14 +23,80 @@
           <h1>平台管理数据</h1>
           <p class="muted">查看平台运营与设备基本数据，不参与发布订单、发布岗位或抢单。</p>
         </section>
+        <nav class="admin-tabs glass-panel" aria-label="管理工作台分类">
+          <button class="active" data-admin-tab="overview">运营总览</button>
+          <button data-admin-tab="users">用户与资质审核</button>
+          <button data-admin-tab="orders">订单监管</button>
+          <button data-admin-tab="airspace">空域与合规</button>
+          <button data-admin-tab="finance">资金管理</button>
+          <button data-admin-tab="risk">风险与日志</button>
+        </nav>
         <p id="admin-status" class="admin-loading">数据加载中……</p>
         <section id="admin-stats" class="admin-stats" hidden></section>
-        <section class="admin-review glass-panel">
+        <section class="admin-review glass-panel" data-admin-panel="overview">
           <div class="admin-review-title"><div><p class="eyebrow">WORK REVIEW</p><h2>待审核作业</h2></div><button id="refresh-review" type="button">刷新</button></div>
           <div id="review-orders"><p class="admin-loading">正在加载待审核订单……</p></div>
         </section>
+        <section class="admin-workspace glass-panel" data-admin-panel="users" hidden><div class="admin-review-title"><div><p class="eyebrow">IDENTITY REVIEW</p><h2>用户与资质审核</h2></div></div><div id="admin-users"></div></section>
+        <section class="admin-workspace glass-panel" data-admin-panel="orders" hidden><div class="admin-review-title"><div><p class="eyebrow">ORDER SUPERVISION</p><h2>订单全流程监管</h2></div></div><div id="admin-orders"></div></section>
+        <section class="admin-workspace glass-panel" data-admin-panel="airspace" hidden><div class="admin-review-title"><div><p class="eyebrow">AIRSPACE COMPLIANCE</p><h2>空域与天气合规复核</h2></div></div><div id="admin-airspace"></div></section>
+        <section class="admin-workspace glass-panel" data-admin-panel="finance" hidden><div class="admin-review-title"><div><p class="eyebrow">ESCROW FINANCE</p><h2>托管与结算管理</h2></div></div><div id="admin-finance"></div></section>
+        <section class="admin-workspace glass-panel" data-admin-panel="risk" hidden><div class="admin-review-title"><div><p class="eyebrow">RISK & AUDIT</p><h2>风险告警与操作日志</h2></div></div><div id="admin-risk"></div></section>
       </main>
     </div>
-    <script type="module" src="/assets/admin-dashboard.js"></script>
-  </body>
+    <script type="module" src="/assets/admin-dashboard.js?v=20261003-order-date-fix-1"></script>
+  <script>
+    // Inline on purpose: this must not depend on a cached external asset.
+    (function () {
+      function leaf(text) {
+        return Array.from(document.querySelectorAll('*')).find(function (el) {
+          return el.children.length === 0 && el.textContent.trim() === text;
+        });
+      }
+      function value(label) {
+        var node = leaf(label), parent = node && node.parentElement;
+        while (parent && parent !== document.body) {
+          var number = Array.from(parent.querySelectorAll('*')).find(function (el) {
+            return el.children.length === 0 && /^\d+$/.test(el.textContent.trim());
+          });
+          if (number) return number.textContent.trim();
+          parent = parent.parentElement;
+        }
+        return '0';
+      }
+      function renderCompactOverview() {
+        if (document.getElementById('compact-operation-overview')) return true;
+        var first = leaf('已注册用户');
+        if (!first) return false;
+        var grid = first.parentElement;
+        while (grid && grid !== document.body && grid.textContent.indexOf('已注册企业') < 0) grid = grid.parentElement;
+        if (!grid || grid === document.body) return false;
+        var table = document.createElement('div');
+        table.id = 'compact-operation-overview';
+        table.style.cssText = 'width:100%;overflow:hidden;border:1px solid rgba(25,210,205,.22);border-radius:16px;background:#0c2139;color:#dceaf5';
+        var rows = [
+          ['用户与资质', value('已注册用户') + ' 人', '企业 ' + value('已注册企业') + ' · 飞手 ' + value('已注册飞手'), '用户与资质审核'],
+          ['作业订单', value('订单总数') + ' 单', '进行中 ' + value('进行中订单'), '订单监管'],
+          ['招聘业务', value('招聘信息') + ' 条', '招聘中 ' + value('招聘中岗位') + ' · 面试 ' + value('面试申请'), '业务数据汇总'],
+          ['设备租赁', value('设备总数') + ' 台', '可租 ' + value('可租设备') + ' · 在租 ' + value('在租设备'), '资金管理']
+        ];
+        table.innerHTML = '<div style="display:grid;grid-template-columns:1.1fr .55fr 1.25fr 1.2fr;gap:20px;padding:13px 24px;background:rgba(8,213,207,.07);color:#65dcd8"><span>业务板块</span><span>总量</span><span>当前状态</span><span>管理入口</span></div>' + rows.map(function(row) {
+          return '<div style="display:grid;grid-template-columns:1.1fr .55fr 1.25fr 1.2fr;gap:20px;padding:20px 24px;border-top:1px solid rgba(144,173,202,.12);align-items:center"><strong style="color:#f0f7ff">' + row[0] + '</strong><span>' + row[1] + '</span><span style="color:#93abc2">' + row[2] + '</span><span style="color:#10d2cb">' + row[3] + '</span></div>';
+        }).join('');
+        grid.parentElement.insertBefore(table, grid);
+        grid.style.setProperty('display', 'none', 'important');
+        document.documentElement.setAttribute('data-flylink-admin-build', '20261002-3');
+        return true;
+      }
+      document.addEventListener('DOMContentLoaded', function () {
+        var attempts = 0;
+        var timer = setInterval(function () {
+          attempts += 1;
+          if (renderCompactOverview() || attempts > 40) clearInterval(timer);
+        }, 250);
+      });
+    })();
+  </script>
+  <script src="/assets/admin-review-fixes.js?v=20261003-order-date-fix-1"></script>
+</body>
 </html>

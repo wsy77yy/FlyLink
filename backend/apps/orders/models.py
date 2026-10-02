@@ -34,6 +34,7 @@ class WorkOrder(models.Model):
         OTHER = 'other', '其它自定义'
 
     class Status(models.TextChoices):
+        PENDING_REVIEW = 'pending_review', '待平台审核'
         PENDING = 'pending', '待匹配'
         MATCHED = 'matched', '已推送'
         ACCEPTED = 'accepted', '已接单'
@@ -45,6 +46,10 @@ class WorkOrder(models.Model):
         REVIEWED = 'reviewed', '管理员已审核'
         ACCEPTED_DONE = 'accepted_done', '已验收'
         SETTLED = 'settled', '已结算'
+        RECTIFYING = 'rectifying', '整改中'
+        DISPUTED = 'disputed', '争议处理中'
+        ABORTED = 'aborted', '异常中止'
+        REFUNDED = 'refunded', '已退款'
         CANCELLED = 'cancelled', '已取消'
 
     order_no = models.CharField(max_length=32, unique=True)
@@ -66,10 +71,26 @@ class WorkOrder(models.Model):
     )
     license_req = models.CharField(max_length=64, blank=True, default='')
     urgent = models.BooleanField(default=False)
+    airspace_approved = models.BooleanField(default=False)
+    weather_safe = models.BooleanField(default=False)
+    compliance_reviewed_at = models.DateTimeField(null=True, blank=True)
+    airspace_review_note = models.TextField(blank=True, default='')
+    weather_checked_at = models.DateTimeField(null=True, blank=True)
+    airspace_valid_until = models.DateTimeField(null=True, blank=True)
+    max_flight_altitude = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     match_radius_km = models.FloatField(default=50)
     assigned_by_admin = models.BooleanField(default=False)
-    platform_fee_rate = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.0800'))
+    platform_fee_rate = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal('0.1000'))
+    risk_level = models.CharField(max_length=16, blank=True, default='low')
+    risk_flags = models.JSONField(default=list, blank=True)
+    review_reason = models.TextField(blank=True, default='')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    acceptance_checklist = models.JSONField(default=list, blank=True)
+    acceptance_result = models.CharField(max_length=20, blank=True, default='')
+    acceptance_note = models.TextField(blank=True, default='')
+    abnormal_reason = models.TextField(blank=True, default='')
+    abnormal_evidence = models.URLField(blank=True, default='')
     escrow_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     deposit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     deposit_paid_at = models.DateTimeField(null=True, blank=True)
@@ -213,3 +234,43 @@ class Settlement(models.Model):
                 name='settlement_amounts_nonnegative',
             ),
         ]
+
+
+class WithdrawalRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', '待审核'
+        APPROVED = 'approved', '已到账'
+        REJECTED = 'rejected', '已驳回'
+
+    pilot = models.ForeignKey(UserAccount, on_delete=models.CASCADE, related_name='withdrawals')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    account_hint = models.CharField(max_length=64, blank=True, default='模拟账户')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    review_note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'withdrawal_request'
+        ordering = ['-created_at']
+
+
+class InvoiceRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', '待开票'
+        ISSUED = 'issued', '已开票'
+        REJECTED = 'rejected', '已驳回'
+
+    enterprise = models.ForeignKey(UserAccount, on_delete=models.CASCADE, related_name='invoice_requests')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    title = models.CharField(max_length=128)
+    tax_no = models.CharField(max_length=64, blank=True, default='')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    invoice_url = models.URLField(blank=True, default='')
+    review_note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'invoice_request'
+        ordering = ['-created_at']

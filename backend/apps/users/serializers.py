@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework.validators import UniqueValidator
 from .models import UserAccount, EnterpriseProfile, PilotProfile, PilotResume, CreditReview
 
@@ -40,18 +41,26 @@ class RegisterSerializer(serializers.Serializer):
     phone = serializers.CharField(required=False, allow_blank=True)
     company_name = serializers.CharField(required=False, allow_blank=True)
     real_name = serializers.CharField(required=False, allow_blank=True)
+    agreements_accepted = serializers.BooleanField(write_only=True)
 
     def validate_password(self, value):
         validate_password(value)
         return value
 
+    def validate_agreements_accepted(self, value):
+        if not value:
+            raise serializers.ValidationError('请先阅读并同意用户协议、隐私政策和飞行安全承诺书。')
+        return value
+
     def create(self, validated_data):
+        validated_data.pop('agreements_accepted', None)
         role = validated_data['role']
         user = UserAccount.objects.create_user(
             username=validated_data['username'],
             password=validated_data['password'],
             role=role,
             phone=validated_data.get('phone', ''),
+            agreements_accepted_at=timezone.now(),
         )
         if role == UserAccount.Role.ENTERPRISE:
             EnterpriseProfile.objects.create(
@@ -74,7 +83,7 @@ class EnterpriseProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = EnterpriseProfile
         fields = '__all__'
-        read_only_fields = ['user', 'verified']
+        read_only_fields = ['user', 'verified', 'review_status', 'review_reason', 'submitted_at', 'reviewed_at']
 
 
 class PilotProfileSerializer(serializers.ModelSerializer):
@@ -94,7 +103,7 @@ class PilotProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = PilotProfile
         fields = '__all__'
-        read_only_fields = ['user', 'verified']
+        read_only_fields = ['user', 'verified', 'review_status', 'review_reason', 'submitted_at', 'reviewed_at', 'dispatch_suspended', 'suspension_reason', 'authorized_work_types']
 
 
 class PilotResumeSerializer(serializers.ModelSerializer):

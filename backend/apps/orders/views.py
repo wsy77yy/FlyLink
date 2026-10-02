@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from apps.users.models import UserAccount
@@ -28,7 +29,9 @@ from .serializers import (
     SettlementSerializer,
 )
 from .selectors import visible_work_orders, work_order_queryset
-from .services import create_work_order, smart_match_and_push
+from .services import create_work_order, smart_match_and_push, simulated_risk_precheck
+from apps.common.events import audit, notify
+from .compliance import evaluate_compliance
 
 
 class WorkOrderViewSet(viewsets.ModelViewSet):
@@ -50,10 +53,101 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                 '仅企业用户可发布需求订单'
             )
 
-        serializer.instance = create_work_order(
-            enterprise=self.request.user,
-            validated_data=serializer.validated_data,
-        )
+        try:
+            serializer.instance = create_work_order(enterprise=self.request.user, validated_data=serializer.validated_data)
+        except ValueError as exc:
+            raise ValidationError({'detail': str(exc)})
+        notify(self.request.user, f'order-{serializer.instance.pk}-review', '订单已提交平台审核', f'{serializer.instance.order_no} 正在进行模拟空域与天气风险复核。', f'/orders/{serializer.instance.pk}', 'order')
+
+    @action(detail=False, methods=['post'], url_path='risk-precheck')
+    def risk_precheck(self, request):
+        if request.user.role != UserAccount.Role.ENTERPRISE:
+            return Response({'detail': '仅企业可进行发布前预检'}, status=403)
+        return Response(simulated_risk_precheck(request.data))
+
+    @action(detail=True, methods=['post'], url_path='publish-review')
+    def publish_review(self, request, pk=None):
+        if not is_admin_user(request.user):
+            return Response({'detail': '仅管理员可审核订单发布'}, status=403)
+        order = self.get_object()
+        if order.status != WorkOrder.Status.PENDING_REVIEW:
+            return Response({'detail': '订单不在待发布审核状态'}, status=400)
+        approved = bool(request.data.get('approved'))
+        order.reviewed_at = timezone.now()
+        order.review_reason = '' if approved else (request.data.get('reason') or '模拟风控审核未通过，请调整作业地点或时间。')
+        if approved:
+            order.status = WorkOrder.Status.PENDING
+            order.save(update_fields=['status', 'reviewed_at', 'review_reason', 'updated_at'])
+            smart_match_and_push(order)
+        else:
+            order.save(update_fields=['reviewed_at', 'review_reason', 'updated_at'])
+        audit(request.user, 'order_publish_review', order, {'approved': approved, 'reason': order.review_reason})
+        notify(order.enterprise, f'order-{order.pk}-review-result', '订单发布审核' + ('通过' if approved else '未通过'), order.review_reason or '订单已进入飞手匹配。', f'/orders/{order.pk}', 'order')
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='abnormal-abort')
+    def abnormal_abort(self, request, pk=None):
+        order = self.get_object()
+        if not (is_admin_user(request.user) or request.user.id in (order.enterprise_id, order.pilot_id)):
+            return Response({'detail': '无权中止该订单'}, status=403)
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'detail': '请填写异常原因'}, status=400)
+        order.status = WorkOrder.Status.ABORTED
+        order.abnormal_reason = reason
+        order.abnormal_evidence = request.data.get('evidence_url', '')
+        order.save(update_fields=['status', 'abnormal_reason', 'abnormal_evidence', 'updated_at'])
+        audit(request.user, 'order_abnormal_abort', order, {'reason': reason})
+        for user in filter(None, (order.enterprise, order.pilot)):
+            notify(user, f'order-{order.pk}-aborted', '订单异常中止', reason, f'/orders/{order.pk}', 'order')
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='resolve-dispute')
+    def resolve_dispute(self, request, pk=None):
+        if not is_admin_user(request.user):
+            return Response({'detail': '仅管理员可处理争议'}, status=403)
+        order = self.get_object()
+        if order.status not in (WorkOrder.Status.DISPUTED, WorkOrder.Status.ABORTED):
+            return Response({'detail': '订单不在争议或异常状态'}, status=400)
+        result = request.data.get('result')
+        if result == 'refund':
+            order.status = WorkOrder.Status.REFUNDED
+            Settlement.objects.update_or_create(order=order, defaults={'total_amount': order.budget, 'platform_fee': 0, 'pilot_income': 0, 'status': Settlement.Status.REFUNDED})
+        elif result == 'rectify':
+            order.status = WorkOrder.Status.RECTIFYING
+        elif result == 'settle':
+            order.status = WorkOrder.Status.REVIEWED
+        else:
+            return Response({'detail': '处理结果必须为 refund、rectify 或 settle'}, status=400)
+        order.review_reason = request.data.get('note', '')
+        order.save(update_fields=['status', 'review_reason', 'updated_at'])
+        audit(request.user, 'dispute_resolved', order, {'result': result, 'note': order.review_reason})
+        for user in filter(None, (order.enterprise, order.pilot)):
+            notify(user, f'order-{order.pk}-dispute-result', '争议处理结果已更新', order.review_reason or order.get_status_display(), f'/orders/{order.pk}', 'order')
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='acceptance')
+    def acceptance(self, request, pk=None):
+        order = self.get_object()
+        denied = self.require_enterprise_owner_or_admin(request, order, '仅发单企业可验收')
+        if denied:
+            return denied
+        if order.status not in (WorkOrder.Status.REVIEWED, WorkOrder.Status.RECTIFYING, WorkOrder.Status.DISPUTED):
+            return Response({'detail': '当前状态不可验收'}, status=400)
+        result = request.data.get('result')
+        if result not in ('accepted', 'rectify', 'dispute'):
+            return Response({'detail': '验收结果必须为 accepted、rectify 或 dispute'}, status=400)
+        order.acceptance_checklist = request.data.get('checklist', [])
+        order.acceptance_result = result
+        order.acceptance_note = request.data.get('note', '')
+        if result == 'accepted':
+            order.save(update_fields=['acceptance_checklist', 'acceptance_result', 'acceptance_note', 'updated_at'])
+            return self.accept_delivery(request, pk=pk)
+        order.status = WorkOrder.Status.RECTIFYING if result == 'rectify' else WorkOrder.Status.DISPUTED
+        order.save(update_fields=['status', 'acceptance_checklist', 'acceptance_result', 'acceptance_note', 'updated_at'])
+        audit(request.user, f'order_{result}', order, {'note': order.acceptance_note})
+        notify(order.pilot, f'order-{order.pk}-{result}', '订单需要整改' if result == 'rectify' else '订单进入争议处理', order.acceptance_note, f'/orders/{order.pk}', 'order')
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
 
     def require_enterprise_owner_or_admin(
         self,
@@ -88,6 +182,48 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             )
 
         return None
+
+    @action(detail=True, methods=['get'])
+    def compliance(self, request, pk=None):
+        order = self.get_object()
+        pilot = order.pilot if order.pilot_id else (request.user if request.user.role == UserAccount.Role.PILOT else None)
+        if not pilot:
+            return Response({'passed': False, 'gates': [], 'detail': '请先选择或匹配飞手'})
+        return Response(evaluate_compliance(order, pilot))
+
+    @action(detail=True, methods=['get'])
+    def candidates(self, request, pk=None):
+        order = self.get_object()
+        denied = self.require_enterprise_owner_or_admin(request, order, '仅发单企业可查看候选飞手')
+        if denied:
+            return denied
+        logs = order.match_logs.select_related('pilot', 'pilot__pilot_profile').order_by('-score')
+        return Response([{
+            'pilot_id': log.pilot_id,
+            'username': log.pilot.username,
+            'real_name': getattr(log.pilot.pilot_profile, 'real_name', ''),
+            'license_level': getattr(log.pilot.pilot_profile, 'license_level', ''),
+            'years_exp': getattr(log.pilot.pilot_profile, 'years_exp', 0),
+            'skills': getattr(log.pilot.pilot_profile, 'skills', []),
+            'verified': getattr(log.pilot.pilot_profile, 'verified', False),
+            'distance_km': round(log.distance_km, 1),
+            'score': round(log.score, 1),
+        } for log in logs])
+
+    @action(detail=True, methods=['post'], url_path='compliance-review')
+    def compliance_review(self, request, pk=None):
+        if not is_admin_user(request.user):
+            return Response({'detail': '仅管理员可进行合规复核'}, status=status.HTTP_403_FORBIDDEN)
+        order = self.get_object()
+        order.airspace_approved = bool(request.data.get('airspace_approved'))
+        order.weather_safe = bool(request.data.get('weather_safe'))
+        order.compliance_reviewed_at = timezone.now()
+        order.airspace_review_note = (request.data.get('review_note') or '').strip()
+        order.airspace_valid_until = request.data.get('airspace_valid_until') or None
+        order.max_flight_altitude = request.data.get('max_flight_altitude') or None
+        order.weather_checked_at = timezone.now() if order.weather_safe else None
+        order.save(update_fields=['airspace_approved', 'weather_safe', 'compliance_reviewed_at', 'airspace_review_note', 'airspace_valid_until', 'max_flight_altitude', 'weather_checked_at', 'updated_at'])
+        return Response(WorkOrderSerializer(order, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
     def rematch(self, request, pk=None):
@@ -181,6 +317,10 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                     {'detail': '已被其他人接单'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            gate_result = evaluate_compliance(order, request.user)
+            if not gate_result['passed']:
+                return Response({'detail': '五项合规闸门未全部通过', **gate_result}, status=status.HTTP_400_BAD_REQUEST)
 
             order.pilot = request.user
             order.status = WorkOrder.Status.ACCEPTED
@@ -361,6 +501,10 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                     {'detail': '只有已接单订单才能申报飞行计划'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            gate_result = evaluate_compliance(order, order.pilot)
+            if not gate_result['passed']:
+                return Response({'detail': '五项合规闸门未全部通过', **gate_result}, status=status.HTTP_400_BAD_REQUEST)
 
             plan, _ = FlightPlan.objects.get_or_create(
                 order=order,
@@ -602,6 +746,10 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            gate_result = evaluate_compliance(order, order.pilot)
+            if not gate_result['passed']:
+                return Response({'detail': '五项合规闸门未全部通过', **gate_result}, status=status.HTTP_400_BAD_REQUEST)
+
             order.status = WorkOrder.Status.WORKING
             order.started_at = timezone.now()
             order.save(
@@ -755,7 +903,7 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_403_FORBIDDEN,
                     )
 
-            if order.status != WorkOrder.Status.FINISHED:
+            if order.status not in (WorkOrder.Status.FINISHED, WorkOrder.Status.RECTIFYING):
                 return Response(
                     {'detail': '请先点击“已完成作业”再提交成果'},
                     status=status.HTTP_400_BAD_REQUEST,

@@ -9,7 +9,9 @@ if not exist "%~dp0launcher.py" (
   pause
   exit /b 1
 )
-if exist "%~dp0runtime\python\python.exe" (
+if exist "%~dp0backend\.venv\Scripts\python.exe" (
+  "%~dp0backend\.venv\Scripts\python.exe" "%~dp0launcher.py"
+) else if exist "%~dp0runtime\python\python.exe" (
   "%~dp0runtime\python\python.exe" "%~dp0launcher.py"
 ) else (
   where python >nul 2>&1

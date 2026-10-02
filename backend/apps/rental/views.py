@@ -1,4 +1,5 @@
 from rest_framework import permissions, status, viewsets
+from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -105,6 +106,11 @@ class RentalOrderViewSet(ServiceErrorMixin, viewsets.ModelViewSet):
                 {'detail': IsRentalCustomer.message},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if request.user.role == 'pilot':
+            profile = getattr(request.user, 'pilot_profile', None)
+            if not profile or not profile.verified:
+                reason = getattr(profile, 'review_reason', '') if profile else ''
+                return Response({'detail': reason or '实名认证与飞行资质尚未审核通过，请先补充资料。'}, status=403)
         delivery = request.data.get('delivery_type', RentalOrder.DeliveryType.PICKUP)
         if delivery not in RentalOrder.DeliveryType.values:
             return Response({'detail': '取件方式无效。'}, status=status.HTTP_400_BAD_REQUEST)
@@ -116,6 +122,7 @@ class RentalOrderViewSet(ServiceErrorMixin, viewsets.ModelViewSet):
             end=request.data.get('end_date'),
             delivery_type=delivery,
             remark=request.data.get('remark', ''),
+            delivery_address=request.data.get('delivery_address', ''),
         )
         if isinstance(result, Response):
             return result
@@ -167,3 +174,18 @@ class RentalOrderViewSet(ServiceErrorMixin, viewsets.ModelViewSet):
             'deposit_refund': float(refund),
             'damage_fee': float(damage_fee),
         })
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        order = self.get_queryset().filter(pk=pk).select_related('unit').first()
+        if not order:
+            return Response({'detail': '租赁订单不存在。'}, status=404)
+        if order.status != RentalOrder.Status.PENDING_PAY:
+            return Response({'detail': '只有待支付订单可以取消。'}, status=400)
+        order.status = RentalOrder.Status.CANCELLED
+        order.cancel_reason = (request.data.get('reason') or '用户取消').strip()
+        order.cancelled_at = timezone.now()
+        order.save(update_fields=['status', 'cancel_reason', 'cancelled_at'])
+        order.unit.status = DroneUnit.Status.AVAILABLE
+        order.unit.save(update_fields=['status'])
+        return Response(RentalOrderSerializer(order).data)

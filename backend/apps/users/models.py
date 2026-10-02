@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from apps.common.validators import credit_score_validators, review_score_validators
 
@@ -15,6 +16,7 @@ class UserAccount(AbstractUser):
     phone = models.CharField(max_length=20, blank=True, default='')
     avatar = models.URLField(blank=True, default='')
     credit_score = models.IntegerField(default=600, validators=credit_score_validators)
+    agreements_accepted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'user_account'
@@ -28,18 +30,37 @@ class UserAccount(AbstractUser):
 
 
 class EnterpriseProfile(models.Model):
+    class ReviewStatus(models.TextChoices):
+        DRAFT = 'draft', '待完善'
+        PENDING = 'pending', '待审核'
+        APPROVED = 'approved', '已通过'
+        REJECTED = 'rejected', '已驳回'
+
     user = models.OneToOneField(UserAccount, on_delete=models.CASCADE, related_name='enterprise_profile')
     company_name = models.CharField(max_length=128)
     license_no = models.CharField(max_length=64, blank=True, default='')
     contact_name = models.CharField(max_length=64, blank=True, default='')
     address = models.CharField(max_length=255, blank=True, default='')
     verified = models.BooleanField(default=False)
+    legal_representative = models.CharField(max_length=64, blank=True, default='')
+    business_license_url = models.URLField(blank=True, default='')
+    legal_id_url = models.URLField(blank=True, default='')
+    review_status = models.CharField(max_length=20, choices=ReviewStatus.choices, default=ReviewStatus.DRAFT)
+    review_reason = models.TextField(blank=True, default='')
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'enterprise_profile'
 
 
 class PilotProfile(models.Model):
+    class ReviewStatus(models.TextChoices):
+        DRAFT = 'draft', '待完善'
+        PENDING = 'pending', '待审核'
+        APPROVED = 'approved', '已通过'
+        REJECTED = 'rejected', '已驳回'
+
     class OnlineStatus(models.TextChoices):
         IDLE = 'idle', '空闲'
         BUSY = 'busy', '作业中'
@@ -54,6 +75,29 @@ class PilotProfile(models.Model):
     lng = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
     skills = models.JSONField(default=list, blank=True)
     verified = models.BooleanField(default=False)
+    insurance_expiry = models.DateField(null=True, blank=True)
+    license_expiry = models.DateField(null=True, blank=True)
+    authorized_work_types = models.JSONField(default=list, blank=True)
+    dispatch_suspended = models.BooleanField(default=False)
+    suspension_reason = models.TextField(blank=True, default='')
+    last_active_at = models.DateTimeField(null=True, blank=True)
+    aircraft_registered = models.BooleanField(default=False)
+    aircraft_registration_no = models.CharField(max_length=64, blank=True, default='')
+    id_card_no = models.CharField(max_length=32, blank=True, default='')
+    license_no = models.CharField(max_length=64, blank=True, default='')
+    id_card_front_url = models.URLField(blank=True, default='')
+    id_card_back_url = models.URLField(blank=True, default='')
+    license_document_url = models.URLField(blank=True, default='')
+    insurance_document_url = models.URLField(blank=True, default='')
+    aircraft_document_url = models.URLField(blank=True, default='')
+    review_status = models.CharField(max_length=20, choices=ReviewStatus.choices, default=ReviewStatus.DRAFT)
+    review_reason = models.TextField(blank=True, default='')
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def insurance_valid(self):
+        return bool(self.insurance_expiry and self.insurance_expiry >= timezone.localdate())
 
     class Meta:
         db_table = 'pilot_profile'

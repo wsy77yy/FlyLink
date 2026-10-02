@@ -66,6 +66,10 @@ class JobApplication(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.APPLIED)
     source = models.CharField(max_length=20, choices=Source.choices, default=Source.SELF)
     created_at = models.DateTimeField(auto_now_add=True)
+    interview_at = models.DateTimeField(null=True, blank=True)
+    interview_note = models.TextField(blank=True, default='')
+    rejection_reason = models.TextField(blank=True, default='')
+    status_updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'job_application'

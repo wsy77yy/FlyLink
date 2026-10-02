@@ -67,6 +67,18 @@ class Command(BaseCommand):
                 'lng': Decimal('121.473700'),
                 'skills': ['植保', '巡检', '航拍'],
                 'verified': True,
+                'insurance_expiry': (timezone.now() + timedelta(days=365)).date(),
+                'aircraft_registered': True,
+                'aircraft_registration_no': 'UAS-CN-310115-FL001',
+                'id_card_no': '310***********001X',
+                'license_no': 'CAAC-FL-2026-001',
+                'review_status': PilotProfile.ReviewStatus.APPROVED,
+                'reviewed_at': timezone.now(),
+                'id_card_front_url': 'https://example.com/demo/id-card-front',
+                'id_card_back_url': 'https://example.com/demo/id-card-back',
+                'license_document_url': 'https://example.com/demo/pilot-license',
+                'insurance_document_url': 'https://example.com/demo/insurance',
+                'aircraft_document_url': 'https://example.com/demo/aircraft-registration',
             },
         )
         PilotResume.objects.update_or_create(
@@ -96,6 +108,10 @@ class Command(BaseCommand):
             'license_req': 'CAAC',
             'urgent': True,
             'status': WorkOrder.Status.PENDING,
+            'airspace_approved': True,
+            'weather_safe': True,
+            'compliance_reviewed_at': timezone.now(),
+            'weather_checked_at': timezone.now(),
         }
         order, order_created = WorkOrder.objects.get_or_create(
             enterprise=ent,
@@ -119,6 +135,10 @@ class Command(BaseCommand):
             'license_req': 'CAAC-视距内',
             'urgent': False,
             'status': WorkOrder.Status.PENDING,
+            'airspace_approved': True,
+            'weather_safe': True,
+            'compliance_reviewed_at': timezone.now(),
+            'weather_checked_at': timezone.now(),
         }
         second, second_created = WorkOrder.objects.get_or_create(
             enterprise=ent,

@@ -4,14 +4,38 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Avg, Q
+from django.utils import timezone
 
 from apps.common.order_numbers import generate_order_no
+from apps.common.models import PlatformConfig
 from apps.users.models import PilotProfile
 
 from .models import OrderMatchLog, WorkOrder, haversine_km
 
 
 logger = logging.getLogger('flylink.orders')
+
+
+def simulated_risk_precheck(data):
+    """可复现的本地模拟风控，不调用天气或空域第三方。"""
+    flags = []
+    location = (data.get('location') or '').strip()
+    if not data.get('lat') or not data.get('lng'):
+        flags.append('未提供精确坐标')
+    rules = PlatformConfig.objects.filter(key='risk_rules').values_list('value', flat=True).first() or {}
+    sensitive_keywords = rules.get('sensitive_keywords') or ['机场', '军用', '禁飞', '政府']
+    if any(word in location for word in sensitive_keywords):
+        flags.append('疑似敏感空域')
+    execute_time = data.get('execute_time')
+    if execute_time and execute_time <= timezone.now() + timezone.timedelta(hours=24):
+        flags.append('执行时间距当前不足24小时')
+    if data.get('urgent'):
+        flags.append('紧急订单需人工复核')
+    seed = sum(ord(char) for char in location) % 10
+    if seed in (0, 7):
+        flags.append('模拟天气：阵风预警')
+    level = 'high' if any('敏感空域' in item for item in flags) else ('medium' if flags else 'low')
+    return {'risk_level': level, 'risk_flags': flags, 'weather_summary': '模拟天气良好' if seed not in (0, 7) else '模拟阵风，建议复核'}
 
 
 def _license_ok(req: str, pilot_level: str) -> bool:
@@ -108,7 +132,11 @@ def gen_order_no(prefix='WO'):
 
 @transaction.atomic
 def create_work_order(*, enterprise, validated_data):
+    profile = getattr(enterprise, 'enterprise_profile', None)
+    if not profile or not profile.verified:
+        raise ValueError('企业实名认证通过后才能发布需求，请先到个人中心提交企业资质。')
     budget = validated_data['budget']
+    risk = simulated_risk_precheck(validated_data)
     order = WorkOrder.objects.create(
         enterprise=enterprise,
         order_no=gen_order_no(),
@@ -116,8 +144,10 @@ def create_work_order(*, enterprise, validated_data):
         platform_fee_rate=Decimal(str(settings.PLATFORM_FEE_RATE)),
         deposit_amount=(budget * Decimal('0.20')).quantize(Decimal('0.01')),
         balance_amount=(budget * Decimal('0.80')).quantize(Decimal('0.01')),
+        status=WorkOrder.Status.PENDING_REVIEW,
+        risk_level=risk['risk_level'],
+        risk_flags=risk['risk_flags'],
         **validated_data,
     )
-    smart_match_and_push(order)
     logger.info('order_created', extra={'order_no': order.order_no, 'user_id': enterprise.pk})
     return order

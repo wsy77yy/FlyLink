@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from apps.users.models import UserAccount
+from apps.users.models import UserAccount, PilotProfile
 
 from .models import DroneModel, DroneUnit, RentalOrder
 
@@ -26,6 +26,8 @@ class RentalRolePermissionTests(TestCase):
             password='test-pass',
             role=UserAccount.Role.PILOT,
         )
+        PilotProfile.objects.create(user=self.pilot, verified=True, real_name='测试飞手')
+        PilotProfile.objects.create(user=self.other_pilot, verified=True, real_name='其他飞手')
         self.device = DroneModel.objects.create(
             model_name='Test Drone',
             daily_price=100,
