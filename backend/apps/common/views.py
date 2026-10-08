@@ -97,7 +97,8 @@ def platform_stats(request):
             name: serializers.IntegerField()
             for name in (
                 'user_count', 'enterprise_count', 'pilot_count', 'order_count',
-                'open_order_count', 'job_count', 'open_job_count',
+                'open_order_count', 'today_order_count', 'completed_order_count',
+                'in_progress_order_count', 'job_count', 'open_job_count',
                 'application_count', 'device_total', 'device_model_count',
                 'available_device_count', 'rental_order_count',
                 'renting_device_count',
@@ -115,6 +116,21 @@ def admin_stats(request):
             status=403,
         )
 
+    completed_statuses = [
+        WorkOrder.Status.FINISHED,
+        WorkOrder.Status.SUBMITTED,
+        WorkOrder.Status.REVIEWED,
+        WorkOrder.Status.ACCEPTED_DONE,
+        WorkOrder.Status.SETTLED,
+    ]
+    in_progress_statuses = [
+        WorkOrder.Status.ACCEPTED,
+        WorkOrder.Status.DECLARED,
+        WorkOrder.Status.ARRIVED,
+        WorkOrder.Status.WORKING,
+        WorkOrder.Status.RECTIFYING,
+    ]
+
     return Response({
         'user_count': UserAccount.objects.exclude(
             role=UserAccount.Role.ADMIN,
@@ -126,6 +142,15 @@ def admin_stats(request):
             role=UserAccount.Role.PILOT,
         ).count(),
         'order_count': WorkOrder.objects.count(),
+        'today_order_count': WorkOrder.objects.filter(
+            created_at__date=timezone.localdate(),
+        ).count(),
+        'completed_order_count': WorkOrder.objects.filter(
+            status__in=completed_statuses,
+        ).count(),
+        'in_progress_order_count': WorkOrder.objects.filter(
+            status__in=in_progress_statuses,
+        ).count(),
         'open_order_count': WorkOrder.objects.exclude(
             status__in=[
                 WorkOrder.Status.SETTLED,

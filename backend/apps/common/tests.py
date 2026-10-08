@@ -39,6 +39,9 @@ class AdminStatsTests(TestCase):
         self.assertEqual(response.data['pilot_count'], 1)
         self.assertIn('device_total', response.data)
         self.assertIn('order_count', response.data)
+        self.assertIn('today_order_count', response.data)
+        self.assertIn('completed_order_count', response.data)
+        self.assertIn('in_progress_order_count', response.data)
 
     def test_enterprise_cannot_read_admin_stats(self):
         self.client.force_authenticate(self.enterprise)

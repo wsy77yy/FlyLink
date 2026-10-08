@@ -1,5 +1,3 @@
-const labels={user_count:"已注册用户",enterprise_count:"已注册企业",pilot_count:"已注册飞手",order_count:"订单总数",open_order_count:"进行中订单",job_count:"招募信息",open_job_count:"招聘中岗位",application_count:"面试申请",device_total:"设备总数",available_device_count:"可租设备",rental_order_count:"租赁订单",renting_device_count:"在租设备"};
-
 function getUser(){try{return JSON.parse(localStorage.getItem("fl_user")||"null")}catch{return null}}
 function logout(){localStorage.removeItem("fl_token");localStorage.removeItem("fl_user");location.replace("/login")}
 const authHeaders=()=>({Authorization:`Bearer ${localStorage.getItem("fl_token")||""}`,"Content-Type":"application/json"});
@@ -34,7 +32,15 @@ async function loadDashboard(){
     if(!response.ok)throw new Error("管理员数据加载失败，请稍后重试。");
     const stats=await response.json();
     const container=document.querySelector("#admin-stats");
-    container.innerHTML=`<div class="admin-summary-table"><div class="summary-row summary-head"><span>业务板块</span><span>总量</span><span>当前状态</span><span>管理入口</span></div><div class="summary-row"><strong>用户与资质</strong><span>${stats.user_count??0} 人</span><span>企业 ${stats.enterprise_count??0} · 飞手 ${stats.pilot_count??0}</span><span>用户与资质审核</span></div><div class="summary-row"><strong>作业订单</strong><span>${stats.order_count??0} 单</span><span>进行中 ${stats.open_order_count??0}</span><span>订单监管</span></div><div class="summary-row"><strong>招聘业务</strong><span>${stats.job_count??0} 条</span><span>招聘中 ${stats.open_job_count??0} · 申请 ${stats.application_count??0}</span><span>业务数据汇总</span></div><div class="summary-row"><strong>设备租赁</strong><span>${stats.device_total??0} 台</span><span>可租 ${stats.available_device_count??0} · 在租 ${stats.renting_device_count??0}</span><span>资金管理</span></div></div>`;
+    const cards=[
+      ["已注册企业",stats.enterprise_count,"家","企业账号与资质档案","企"],
+      ["已注册飞手",stats.pilot_count,"人","平台认证飞手规模","飞"],
+      ["今日订单",stats.today_order_count,"单","今日新创建作业订单","今"],
+      ["已完成订单",stats.completed_order_count,"单","已完成作业及后续流程","完"],
+      ["正在进行中",stats.in_progress_order_count,"单","已接单至作业执行阶段","进"],
+      ["订单总数",stats.order_count,"单","平台累计作业订单","总"]
+    ];
+    container.innerHTML=cards.map(([label,value,unit,note,icon],index)=>`<article class="admin-card" data-tone="${index+1}"><div class="admin-card-top"><span class="admin-card-icon">${icon}</span><span class="admin-card-live">实时</span></div><p class="admin-label">${label}</p><div><strong class="admin-value">${value??0}</strong><span class="admin-unit">${unit}</span></div><small>${note}</small></article>`).join("");
     document.querySelector("#admin-status").hidden=true;container.hidden=false;
     loadReviews();
     loadWorkspace();
