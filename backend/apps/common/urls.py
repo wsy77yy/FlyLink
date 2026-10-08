@@ -1,8 +1,9 @@
 from django.urls import path
-from .views import admin_stats, platform_stats, notifications, admin_workspace, admin_verify_user, finance_center, enterprise_certification, admin_finance_review, admin_pilot_policy, admin_risk_config
+from .views import admin_stats, platform_stats, notifications, admin_workspace, admin_verify_user, finance_center, enterprise_certification, admin_finance_review, admin_pilot_policy, admin_risk_config, demo_access
 
 urlpatterns = [
     path('stats/', platform_stats),
+    path('demo-access/', demo_access),
     path('admin-stats/', admin_stats),
     path('notifications/', notifications),
     path('admin-workspace/', admin_workspace),

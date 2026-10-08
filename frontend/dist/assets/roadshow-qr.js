@@ -9,6 +9,15 @@
     return window.location.href.replace(/#$/, "");
   }
 
+  function isLocalUrl(value) {
+    try { return /^(localhost|127\.0\.0\.1)$/i.test(new URL(value).hostname); }
+    catch (_) { return false; }
+  }
+
+  function lanPageUrl(baseUrl) {
+    return new URL(window.location.pathname + window.location.search + window.location.hash, baseUrl).href;
+  }
+
   function build() {
     if (document.querySelector(".flylink-qr-launcher")) return;
 
@@ -64,7 +73,7 @@
         var dataUrl = code.createDataURL(7, 4);
         preview.innerHTML = '<img alt="FlyLink 演示网页二维码" src="' + dataUrl + '">';
         download.href = dataUrl;
-        warning.classList.toggle("show", /^(localhost|127\.0\.0\.1)$/i.test(new URL(url).hostname));
+        warning.classList.toggle("show", isLocalUrl(url));
         localStorage.setItem("flylink_demo_url", url);
         setStatus("二维码已生成，可下载后放入 PPT");
       } catch (error) {
@@ -72,10 +81,23 @@
       }
     }
 
-    function open() {
-      input.value = localStorage.getItem("flylink_demo_url") || currentUrl();
+    async function open() {
+      var saved = localStorage.getItem("flylink_demo_url");
+      input.value = saved || currentUrl();
       overlay.hidden = false;
       document.body.style.overflow = "hidden";
+      if (isLocalUrl(input.value)) {
+        status.textContent = "正在获取手机可访问的局域网地址……";
+        try {
+          var response = await fetch("/api/common/demo-access/", { headers: { "Accept": "application/json" } });
+          if (response.ok) {
+            var access = await response.json();
+            if (access.is_lan && access.base_url) input.value = lanPageUrl(access.base_url);
+          }
+        } catch (_) {
+          // Keep the local URL so the existing warning explains the manual fallback.
+        }
+      }
       render();
       input.focus();
       input.select();

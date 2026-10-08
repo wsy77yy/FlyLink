@@ -1,6 +1,7 @@
 from django.core.management import call_command
 from django.test import TestCase
 from rest_framework.test import APIClient
+from unittest.mock import MagicMock, patch
 
 from apps.users.models import UserAccount
 from apps.jobs.models import JobPost
@@ -58,6 +59,22 @@ class AdminStatsTests(TestCase):
         self.assertEqual(schema.status_code, 200)
         self.assertEqual(docs.status_code, 200)
         self.assertIn('/api/orders/', schema.content.decode('utf-8'))
+
+    @patch('apps.common.views.socket.socket')
+    def test_demo_access_returns_lan_url_for_local_roadshow(self, socket_mock):
+        client = MagicMock()
+        client.getsockname.return_value = ('10.20.30.40', 54321)
+        socket_mock.return_value.__enter__.return_value = client
+
+        response = self.client.get(
+            '/api/common/demo-access/',
+            HTTP_HOST='127.0.0.1:8000',
+            SERVER_PORT='8000',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['is_lan'])
+        self.assertEqual(response.data['base_url'], 'http://10.20.30.40:8000/')
 
 
 class SeedDemoTests(TestCase):

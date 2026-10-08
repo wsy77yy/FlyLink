@@ -1,3 +1,6 @@
+import ipaddress
+import socket
+
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -14,6 +17,49 @@ from apps.rental.models import DroneModel, DroneUnit, RentalOrder
 from apps.jobs.models import JobApplication, JobPost, AgencyFee
 from apps.users.serializers import UserSerializer
 from apps.orders.serializers import WorkOrderSerializer
+
+
+@extend_schema(
+    responses=inline_serializer(
+        name='DemoAccess',
+        fields={
+            'base_url': serializers.URLField(),
+            'is_lan': serializers.BooleanField(),
+        },
+    ),
+)
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def demo_access(request):
+    """Return a phone-accessible LAN URL for local roadshow sessions."""
+    ip = ''
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+            client.connect(('8.8.8.8', 80))
+            ip = client.getsockname()[0]
+    except OSError:
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+        except OSError:
+            ip = ''
+
+    try:
+        is_lan = bool(ip and ipaddress.ip_address(ip).is_private)
+    except ValueError:
+        is_lan = False
+
+    if not is_lan:
+        return Response({
+            'base_url': request.build_absolute_uri('/'),
+            'is_lan': False,
+        })
+
+    port = request.get_port()
+    authority = ip if port in ('80', '443') else f'{ip}:{port}'
+    return Response({
+        'base_url': f'{request.scheme}://{authority}/',
+        'is_lan': True,
+    })
 
 
 @extend_schema(
