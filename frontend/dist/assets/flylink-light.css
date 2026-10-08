@@ -109,6 +109,21 @@ a { color: #3478f6; }
   .layout > .footer { margin-left: 0; }
 }
 
+/* Use the supplied FlyLink brand mark while keeping the existing wordmark text. */
+.layout > .nav .logo-mark {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  background-image: url("/assets/flylink-brand-logo.png") !important;
+  background-repeat: no-repeat !important;
+  background-position: left center !important;
+  background-size: auto 130% !important;
+  box-shadow: none !important;
+}
+.layout > .nav .logo-mark .rotor { display: none !important; }
+
 /* Dashboard cards echo the reference: white surfaces, restrained blue accents. */
 .hero { min-height: 330px !important; border: 0 !important; }
 .hero::before { background: linear-gradient(120deg,rgba(52,120,246,.07),transparent 48%) !important; }
