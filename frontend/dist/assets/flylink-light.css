@@ -147,6 +147,29 @@ a { color: #3478f6; }
 .el-dialog, .el-drawer { background: #fff !important; border-color: #e1e8f1 !important; }
 .el-dialog__title, .el-dialog__body, .el-drawer { color: #172033 !important; }
 
+/* Login role selector: keep both title and description readable in every state. */
+.auth .roles .role {
+  background: #f7f9fc !important;
+  border: 1px solid #dfe6ef !important;
+  color: #172033 !important;
+  box-shadow: none !important;
+}
+.auth .roles .role strong { color: #172033 !important; }
+.auth .roles .role span { color: #667187 !important; }
+.auth .roles .role:hover {
+  background: #eef4ff !important;
+  border-color: #9bbcf8 !important;
+  box-shadow: 0 8px 18px rgba(52,120,246,.10) !important;
+}
+.auth .roles .role.active {
+  background: linear-gradient(135deg,#4b86f3,#2f69d6) !important;
+  border-color: #2f69d6 !important;
+  box-shadow: 0 10px 24px rgba(52,120,246,.24) !important;
+}
+.auth .roles .role.active strong { color: #fff !important; }
+.auth .roles .role.active span { color: rgba(255,255,255,.86) !important; }
+.auth .roles .role:focus-visible { outline: 3px solid rgba(52,120,246,.22); outline-offset: 2px; }
+
 /* Pages added by the workflow patch. */
 .fb-shell { background: transparent !important; color: #172033 !important; }
 .fb-nav { background: #fff !important; border-color: #e7ecf3 !important; box-shadow: var(--fl-shadow); }
