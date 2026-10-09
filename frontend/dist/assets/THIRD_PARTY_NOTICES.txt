@@ -1,5 +1,0 @@
-qrcode-generator 1.4.4
-Copyright (c) 2009 Kazuhiko Arase
-Licensed under the MIT License.
-https://github.com/kazuhikoarase/qrcode-generator
-

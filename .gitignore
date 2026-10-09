@@ -1,65 +1,14 @@
-# =========================
-# Python
-# =========================
-
 __pycache__/
 *.py[cod]
-*.pyo
-
-# Python virtual environments
-.venv/
-venv/
-env/
-ENV/
-venv.bak/
-env.bak/
-
-# =========================
-# Environment / Secrets
-# =========================
-
+.pytest_cache/
+.coverage
 .env
 .env.*
 !.env.example
-
-# =========================
-# IDE
-# =========================
-
 .vscode/
 .idea/
-
-# =========================
-# OS
-# =========================
-
 .DS_Store
 Thumbs.db
-
-# =========================
-# Testing / Coverage
-# =========================
-
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
-
-# =========================
-# Logs
-# =========================
-
 *.log
-
-# =========================
-# Node.js
-# =========================
-
-node_modules/
-
-# Frontend temporary files
-frontend/.vite/
-
-# Build cache
-.cache/
+data/
+*.sqlite3

@@ -1,7 +1,0 @@
-.mall .grid{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))!important}
-.device .price{grid-template-columns:repeat(3,minmax(0,1fr))!important}
-.device .price strong{display:block;font-size:13px!important;letter-spacing:-.4px;white-space:nowrap}
-.admin-dashboard [hidden]{display:none!important}
-.admin-table-row button{padding:7px 10px;border:1px solid #00d4c8;border-radius:16px;background:transparent;color:#00d4c8;cursor:pointer}
-@media(max-width:760px){.mall .grid{grid-template-columns:1fr!important}}
-/* verification marker */

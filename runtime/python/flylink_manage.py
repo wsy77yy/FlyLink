@@ -14,7 +14,7 @@ os.chdir(backend)
 if str(backend) not in sys.path:
     sys.path.insert(0, str(backend))
 os.environ["FLYLINK_BACKEND"] = str(backend)
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
 # Keep only manage.py args
 argv_tail = sys.argv[1:]
